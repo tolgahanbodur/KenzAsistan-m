@@ -2,6 +2,7 @@ import streamlit as st
 import uuid
 
 from ai_router import ask_ai
+
 from supabase_client import (
     get_client_id,
     get_conversations,
@@ -10,11 +11,12 @@ from supabase_client import (
     add_message,
     delete_conversation,
     update_conversation_title,
+    upload_image,
 )
 
 
 # ============================================================
-# PAGE
+# SAYFA
 # ============================================================
 
 st.set_page_config(
@@ -32,7 +34,7 @@ client_id = get_client_id()
 
 
 # ============================================================
-# SESSION
+# SESSION STATE
 # ============================================================
 
 if "conversation_id" not in st.session_state:
@@ -52,7 +54,7 @@ if "last_provider" not in st.session_state:
 # YENİ SOHBET
 # ============================================================
 
-def new_chat():
+def start_new_conversation():
 
     conversation = create_conversation(
         client_id=client_id,
@@ -63,7 +65,6 @@ def new_chat():
         return False
 
     st.session_state.conversation_id = conversation["id"]
-
     st.session_state.messages = []
 
     return True
@@ -73,7 +74,7 @@ def new_chat():
 # SOHBET YÜKLE
 # ============================================================
 
-def load_chat(conversation_id):
+def load_conversation(conversation_id):
 
     messages = get_messages(
         conversation_id
@@ -100,13 +101,13 @@ if not st.session_state.initialized:
 
         if conversations:
 
-            load_chat(
+            load_conversation(
                 conversations[0]["id"]
             )
 
         else:
 
-            new_chat()
+            start_new_conversation()
 
         st.session_state.initialized = True
 
@@ -147,7 +148,8 @@ with st.sidebar:
 
         try:
 
-            if new_chat():
+            if start_new_conversation():
+
                 st.rerun()
 
         except Exception as e:
@@ -197,31 +199,25 @@ with st.sidebar:
 
     for conversation in conversations:
 
-        conversation_id = (
-            conversation["id"]
-        )
+        conversation_id = conversation["id"]
 
         title = (
             conversation.get("title")
             or "Yeni sohbet"
         )
 
-
         if len(title) > 30:
 
-            title = (
-                title[:30]
-                + "..."
-            )
+            title = title[:30] + "..."
 
 
         if st.button(
             "💬 " + title,
-            key=conversation_id,
+            key="chat_" + conversation_id,
             use_container_width=True,
         ):
 
-            load_chat(
+            load_conversation(
                 conversation_id
             )
 
@@ -232,7 +228,7 @@ with st.sidebar:
 
 
     # --------------------------------------------------------
-    # PROVIDER
+    # SON MODEL
     # --------------------------------------------------------
 
     if st.session_state.last_provider:
@@ -250,7 +246,7 @@ with st.sidebar:
 
 
     # --------------------------------------------------------
-    # SİL
+    # SOHBET SİL
     # --------------------------------------------------------
 
     if st.session_state.conversation_id:
@@ -268,7 +264,6 @@ with st.sidebar:
                 )
 
                 st.session_state.conversation_id = None
-
                 st.session_state.messages = []
 
                 conversations = get_conversations(
@@ -277,13 +272,13 @@ with st.sidebar:
 
                 if conversations:
 
-                    load_chat(
+                    load_conversation(
                         conversations[0]["id"]
                     )
 
                 else:
 
-                    new_chat()
+                    start_new_conversation()
 
                 st.rerun()
 
@@ -305,36 +300,48 @@ st.title(
 )
 
 st.caption(
-    "Senin kişisel yapay zeka asistanın"
+    "Yazılı ve görsel sohbet edebilirsin."
 )
 
 
 # ============================================================
-# MESAJLAR
+# GEÇMİŞ MESAJLAR
 # ============================================================
 
 for message in st.session_state.messages:
 
     role = message.get(
         "role",
-        "assistant",
+        "assistant"
     )
 
     content = message.get(
         "content",
-        "",
+        ""
     )
 
-    if not content:
-        continue
+    image_url = message.get(
+        "image_url"
+    )
+
 
     with st.chat_message(
         role
     ):
 
-        st.markdown(
-            content
-        )
+        # Görsel varsa göster
+        if image_url:
+
+            st.image(
+                image_url,
+                use_container_width=True
+            )
+
+        if content:
+
+            st.markdown(
+                content
+            )
 
 
 # ============================================================
@@ -355,23 +362,40 @@ Ben **Kenz**.
 
 Benimle normal şekilde sohbet edebilirsin.
 
+Ayrıca fotoğraf göndererek görseli analiz
+etmemi de isteyebilirsin.
+
 Örneğin:
 
-**"Bugün ne giysem?"**
+👕 **"Bu kombin nasıl?"**
 
-**"Bana bir film öner."**
+📸 **"Bu fotoğrafta ne görüyorsun?"**
 
-**"Python öğrenmeye nereden başlamalıyım?"**
+🎨 **"Bu renkler uyumlu mu?"**
 
-**"Bu kombin nasıl?"**
-
-Mesajını aşağıdaki kutuya yaz.
+💇 **"Saçımı değerlendir."**
 """
         )
 
 
 # ============================================================
-# CHAT INPUT
+# GÖRSEL YÜKLEME
+# ============================================================
+
+uploaded_file = st.file_uploader(
+    "📷 Görsel ekle",
+    type=[
+        "jpg",
+        "jpeg",
+        "png",
+        "webp",
+    ],
+    accept_multiple_files=False,
+)
+
+
+# ============================================================
+# CHAT
 # ============================================================
 
 user_message = st.chat_input(
@@ -383,64 +407,167 @@ user_message = st.chat_input(
 # MESAJ GELDİ
 # ============================================================
 
-if user_message:
+if user_message or uploaded_file:
 
-    user_message = user_message.strip()
+    user_message = (
+        user_message.strip()
+        if user_message
+        else ""
+    )
 
 
-    if not user_message:
+    # --------------------------------------------------------
+    # GÖRSEL BYTES
+    # --------------------------------------------------------
+
+    image_bytes = None
+
+
+    if uploaded_file:
+
+        try:
+
+            image_bytes = (
+                uploaded_file.getvalue()
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Görsel okunamadı."
+            )
+
+            st.exception(e)
+
+            st.stop()
+
+
+    # --------------------------------------------------------
+    # HİÇBİR ŞEY YOKSA
+    # --------------------------------------------------------
+
+    if (
+        not user_message
+        and not image_bytes
+    ):
 
         st.warning(
-            "Lütfen bir mesaj yaz."
+            "Mesaj yaz veya görsel gönder."
         )
 
         st.stop()
 
 
     # ========================================================
-    # USER MESSAGE
+    # KULLANICI MESAJI
     # ========================================================
 
     with st.chat_message(
         "user"
     ):
 
-        st.markdown(
-            user_message
+        if image_bytes:
+
+            st.image(
+                image_bytes,
+                caption="Gönderilen görsel",
+                use_container_width=True
+            )
+
+        if user_message:
+
+            st.markdown(
+                user_message
+            )
+
+
+    # ========================================================
+    # SOHBET ID
+    # ========================================================
+
+    if not st.session_state.conversation_id:
+
+        if not start_new_conversation():
+
+            st.error(
+                "Sohbet oluşturulamadı."
+            )
+
+            st.stop()
+
+
+    # ========================================================
+    # GÖRSELİ SUPABASE STORAGE'A YÜKLE
+    # ========================================================
+
+    image_url = None
+
+
+    if image_bytes:
+
+        file_name = (
+            "chat/"
+            + str(uuid.uuid4())
+            + ".jpg"
         )
 
 
+        try:
+
+            image_url = upload_image(
+                image_bytes,
+                file_name,
+                bucket_name="chat_images",
+            )
+
+        except Exception as e:
+
+            st.warning(
+                "Görsel Storage'a kaydedilemedi."
+            )
+
+            st.exception(e)
+
+
     # ========================================================
-    # GEÇMİŞİ HAZIRLA
+    # AI GEÇMİŞİ
     # ========================================================
 
-    history = []
+    history_text = ""
 
 
     for message in st.session_state.messages:
 
+        role = message.get(
+            "role"
+        )
+
         content = message.get(
             "content",
-            "",
+            ""
         )
 
         if not content:
             continue
 
 
-        history.append(
-            {
-                "role": message.get(
-                    "role"
-                ),
+        if role == "user":
 
-                "text": content,
-            }
-        )
+            history_text += (
+                "\nKullanıcı: "
+                + content
+            )
+
+        elif role == "assistant":
+
+            history_text += (
+                "\nKenz: "
+                + content
+            )
 
 
     # ========================================================
-    # PROMPT
+    # SYSTEM PROMPT
     # ========================================================
 
     system_prompt = """
@@ -450,43 +577,70 @@ Kullanıcıyla Türkçe konuş.
 
 Samimi, doğal, akıllı ve yardımcı ol.
 
-Normal sohbet edebilirsin.
+Kullanıcı normal sohbet edebilir.
+
+Kullanıcı görsel gönderirse görseli gerçekten analiz et.
+
+Görselde kıyafet, kombin, saç, ürün, nesne,
+mekan veya başka bir şey varsa analiz edebilirsin.
+
+Kullanıcı "bu kombin nasıl?" gibi bir soru
+sorarsa görseldeki kıyafetleri değerlendir.
+
+Görseli görmediğin halde görmüş gibi davranma.
 
 Soruyu doğrudan cevapla.
 
 Gereksiz yere uzun cevap verme.
-
-Kullanıcı detay isterse ayrıntılı cevap ver.
 """
 
 
-    history_text = ""
-
-
-    for item in history:
-
-        if item["role"] == "user":
-
-            history_text += (
-                "\nKullanıcı: "
-                + item["text"]
-            )
-
-        elif item["role"] == "assistant":
-
-            history_text += (
-                "\nKenz: "
-                + item["text"]
-            )
-
+    # ========================================================
+    # PROMPT
+    # ========================================================
 
     prompt = (
         system_prompt
-        + "\n\nÖNCEKİ KONUŞMA:"
+        + "\n\nÖNCEKİ SOHBET:"
         + history_text
-        + "\n\nYENİ MESAJ:"
-        + user_message
+        + "\n\nYENİ KULLANICI MESAJI:"
+        + (
+            user_message
+            if user_message
+            else
+            "Kullanıcı bir görsel gönderdi. "
+            "Görseli analiz et."
+        )
     )
+
+
+    # ========================================================
+    # USER MESSAGE SAVE
+    # ========================================================
+
+    try:
+
+        add_message(
+            conversation_id=(
+                st.session_state.conversation_id
+            ),
+
+            role="user",
+
+            content=user_message,
+
+            image_url=image_url,
+
+            provider=None,
+        )
+
+    except Exception as e:
+
+        st.warning(
+            "Kullanıcı mesajı kaydedilemedi."
+        )
+
+        st.exception(e)
 
 
     # ========================================================
@@ -505,12 +659,7 @@ Kullanıcı detay isterse ayrıntılı cevap ver.
 
                 answer = ask_ai(
                     prompt=prompt,
-                    image=None,
-                )
-
-
-                st.markdown(
-                    answer
+                    image=image_bytes,
                 )
 
 
@@ -522,49 +671,44 @@ Kullanıcı detay isterse ayrıntılı cevap ver.
                 )
 
 
-                # ------------------------------------------------
-                # USER SAVE
-                # ------------------------------------------------
-
-                add_message(
-                    conversation_id=(
-                        st.session_state
-                        .conversation_id
-                    ),
-
-                    role="user",
-
-                    content=user_message,
-
-                    image_url=None,
-
-                    provider=None,
+                st.markdown(
+                    answer
                 )
 
 
-                # ------------------------------------------------
-                # AI SAVE
-                # ------------------------------------------------
+                # ============================================
+                # AI MESAJINI KAYDET
+                # ============================================
 
-                add_message(
-                    conversation_id=(
-                        st.session_state
-                        .conversation_id
-                    ),
+                try:
 
-                    role="assistant",
+                    add_message(
+                        conversation_id=(
+                            st.session_state
+                            .conversation_id
+                        ),
 
-                    content=answer,
+                        role="assistant",
 
-                    image_url=None,
+                        content=answer,
 
-                    provider=provider,
-                )
+                        image_url=None,
+
+                        provider=provider,
+                    )
+
+                except Exception as e:
+
+                    st.warning(
+                        "AI cevabı kaydedilemedi."
+                    )
+
+                    st.exception(e)
 
 
-                # ------------------------------------------------
+                # ============================================
                 # SESSION
-                # ------------------------------------------------
+                # ============================================
 
                 st.session_state.messages.append(
                     {
@@ -573,6 +717,12 @@ Kullanıcı detay isterse ayrıntılı cevap ver.
 
                         "content":
                             user_message,
+
+                        "image_url":
+                            image_url,
+
+                        "provider":
+                            None,
                     }
                 )
 
@@ -585,15 +735,18 @@ Kullanıcı detay isterse ayrıntılı cevap ver.
                         "content":
                             answer,
 
+                        "image_url":
+                            None,
+
                         "provider":
                             provider,
                     }
                 )
 
 
-                # ------------------------------------------------
-                # BAŞLIK
-                # ------------------------------------------------
+                # ============================================
+                # SOHBET BAŞLIĞI
+                # ============================================
 
                 conversations = (
                     get_conversations(
@@ -629,20 +782,27 @@ Kullanıcı detay isterse ayrıntılı cevap ver.
                         "Yeni sohbet"
                     ):
 
+                        title = (
+                            user_message[:40]
+                            if user_message
+                            else "Görsel sohbet"
+                        )
+
+
                         update_conversation_title(
                             st.session_state
                             .conversation_id,
 
                             client_id,
 
-                            user_message[:40],
+                            title,
                         )
 
 
             except Exception as e:
 
                 st.error(
-                    "Kenz cevap oluşturamadı."
+                    "Kenz cevap veremedi."
                 )
 
                 st.exception(e)
