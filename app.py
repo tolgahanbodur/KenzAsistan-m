@@ -1,722 +1,257 @@
-import uuid
+import base64
+import io
+import os
+import tempfile
 
+import requests
 import streamlit as st
 
-from ai_router import ask_ai
+from PIL import Image
+from google import genai
+from openai import OpenAI
 
-from supabase_client import (
-    get_client_id,
-    get_conversations,
-    create_conversation,
-    get_messages,
-    add_message,
-    delete_conversation,
-    update_conversation_title,
-    upload_file,
-    get_all_clothes,
+
+# ============================================================
+# API KEYS
+# ============================================================
+
+GEMINI_API_KEY = st.secrets.get(
+    "GEMINI_API_KEY",
+    os.environ.get("GEMINI_API_KEY", "")
+)
+
+OPENAI_API_KEY = st.secrets.get(
+    "OPENAI_API_KEY",
+    os.environ.get("OPENAI_API_KEY", "")
+)
+
+OPENROUTER_API_KEY = st.secrets.get(
+    "OPENROUTER_API_KEY",
+    os.environ.get("OPENROUTER_API_KEY", "")
 )
 
 
 # ============================================================
-# PAGE
+# CLIENTS
 # ============================================================
 
-st.set_page_config(
-    page_title="Kenz Asistan",
-    page_icon="🤖",
-    layout="wide",
-)
+gemini_client = None
+openai_client = None
 
 
-# ============================================================
-# CLIENT
-# ============================================================
+if GEMINI_API_KEY:
 
-client_id = get_client_id()
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-defaults = {
-    "conversation_id": None,
-    "messages": [],
-    "initialized": False,
-    "last_provider": None,
-    "show_wardrobe": False,
-
-    # Chat attachment
-    "attached_file_bytes": None,
-    "attached_file_name": None,
-    "attached_file_type": None,
-}
-
-for key, value in defaults.items():
-
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-
-# ============================================================
-# CONVERSATION
-# ============================================================
-
-def start_new_conversation():
-
-    conversation = create_conversation(
-        client_id=client_id,
-        title="Yeni sohbet",
+    gemini_client = genai.Client(
+        api_key=GEMINI_API_KEY
     )
 
-    if not conversation:
-        return False
 
-    st.session_state.conversation_id = conversation["id"]
-    st.session_state.messages = []
+if OPENAI_API_KEY:
 
-    return True
-
-
-def load_conversation(conversation_id):
-
-    messages = get_messages(
-        conversation_id
+    openai_client = OpenAI(
+        api_key=OPENAI_API_KEY
     )
 
-    st.session_state.conversation_id = conversation_id
-    st.session_state.messages = messages or []
-
 
 # ============================================================
-# INITIALIZE
+# FILE HELPERS
 # ============================================================
 
-if not st.session_state.initialized:
+def get_file_data(uploaded_file):
 
-    try:
+    if uploaded_file is None:
+        return None, None, None
 
-        conversations = get_conversations(
-            client_id
+    # --------------------------------------------------------
+    # Yeni app.py'den gelen dictionary
+    # --------------------------------------------------------
+
+    if isinstance(uploaded_file, dict):
+
+        file_bytes = uploaded_file.get(
+            "bytes"
         )
 
-        if conversations:
+        file_name = uploaded_file.get(
+            "name",
+            "file"
+        )
 
-            load_conversation(
-                conversations[0]["id"]
-            )
+        file_type = uploaded_file.get(
+            "type",
+            "application/octet-stream"
+        )
 
-        else:
-
-            start_new_conversation()
-
-        st.session_state.initialized = True
-
-    except Exception as e:
-
-        st.error("Kenz başlatılamadı.")
-        st.exception(e)
-        st.stop()
+        return (
+            file_bytes,
+            file_name,
+            file_type
+        )
 
 
-# ============================================================
-# SIDEBAR
-# ============================================================
+    # --------------------------------------------------------
+    # Streamlit UploadedFile
+    # --------------------------------------------------------
 
-with st.sidebar:
-
-    st.title("🤖 Kenz")
-
-    st.caption(
-        "Kişisel yapay zeka asistanın"
-    )
-
-    st.divider()
-
-
-    # ========================================================
-    # NEW CHAT
-    # ========================================================
-
-    if st.button(
-        "＋ Yeni sohbet",
-        use_container_width=True,
+    if hasattr(
+        uploaded_file,
+        "getvalue"
     ):
 
-        if start_new_conversation():
+        file_bytes = uploaded_file.getvalue()
 
-            st.rerun()
+        file_name = getattr(
+            uploaded_file,
+            "name",
+            "file"
+        )
+
+        file_type = getattr(
+            uploaded_file,
+            "type",
+            "application/octet-stream"
+        )
+
+        return (
+            file_bytes,
+            file_name,
+            file_type
+        )
 
 
-    st.divider()
+    # --------------------------------------------------------
+    # Bytes
+    # --------------------------------------------------------
 
-
-    # ========================================================
-    # WARDROBE
-    # ========================================================
-
-    if st.button(
-        "👕 Gardırop",
-        use_container_width=True,
+    if isinstance(
+        uploaded_file,
+        bytes
     ):
 
-        st.session_state.show_wardrobe = (
-            not st.session_state.show_wardrobe
-        )
-
-        st.rerun()
-
-
-    if st.session_state.show_wardrobe:
-
-        st.subheader("👕 Gardırobum")
-
-        try:
-
-            clothes = get_all_clothes(
-                client_id
-            )
-
-        except Exception as e:
-
-            clothes = []
-
-            st.error(
-                "Gardırop yüklenemedi."
-            )
-
-            st.exception(e)
-
-
-        st.caption(
-            f"{len(clothes)} parça"
+        return (
+            uploaded_file,
+            "file",
+            "application/octet-stream"
         )
 
 
-        if clothes:
-
-            for item in clothes:
-
-                name = (
-                    item.get("name")
-                    or item.get("category")
-                    or "Kıyafet"
-                )
-
-                image_url = item.get(
-                    "image_url"
-                )
-
-
-                if image_url:
-
-                    st.image(
-                        image_url,
-                        use_container_width=True
-                    )
-
-
-                st.write(
-                    "👕 " + name
-                )
-
-
-                if item.get("color"):
-
-                    st.caption(
-                        "Renk: "
-                        + str(
-                            item["color"]
-                        )
-                    )
-
-
-                if item.get("style"):
-
-                    st.caption(
-                        "Stil: "
-                        + str(
-                            item["style"]
-                        )
-                    )
-
-
-                if item.get("season"):
-
-                    st.caption(
-                        "Sezon: "
-                        + str(
-                            item["season"]
-                        )
-                    )
-
-
-                st.divider()
-
-        else:
-
-            st.caption(
-                "Gardırop henüz boş."
-            )
-
-
-    st.divider()
-
-
-    # ========================================================
-    # CHAT HISTORY
-    # ========================================================
-
-    st.subheader(
-        "💬 Sohbet geçmişi"
-    )
-
-
-    try:
-
-        conversations = get_conversations(
-            client_id
-        )
-
-    except Exception as e:
-
-        conversations = []
-
-        st.error(
-            "Sohbet geçmişi alınamadı."
-        )
-
-        st.exception(e)
-
-
-    if not conversations:
-
-        st.caption(
-            "Henüz sohbet yok."
-        )
-
-
-    for conversation in conversations:
-
-        conversation_id = conversation["id"]
-
-        title = (
-            conversation.get("title")
-            or "Yeni sohbet"
-        )
-
-
-        if len(title) > 32:
-
-            title = title[:32] + "..."
-
-
-        if st.button(
-            "💬 " + title,
-            key="conversation_" + conversation_id,
-            use_container_width=True,
-        ):
-
-            load_conversation(
-                conversation_id
-            )
-
-            st.rerun()
-
-
-    st.divider()
-
-
-    # ========================================================
-    # PROVIDER
-    # ========================================================
-
-    if st.session_state.last_provider:
-
-        st.caption(
-            "Son kullanılan model"
-        )
-
-        st.write(
-            st.session_state.last_provider
-        )
-
-
-    st.divider()
-
-
-    # ========================================================
-    # DELETE
-    # ========================================================
-
-    if st.session_state.conversation_id:
-
-        if st.button(
-            "🗑️ Bu sohbeti sil",
-            use_container_width=True,
-        ):
-
-            try:
-
-                delete_conversation(
-                    st.session_state.conversation_id,
-                    client_id,
-                )
-
-                st.session_state.conversation_id = None
-                st.session_state.messages = []
-
-
-                conversations = get_conversations(
-                    client_id
-                )
-
-
-                if conversations:
-
-                    load_conversation(
-                        conversations[0]["id"]
-                    )
-
-                else:
-
-                    start_new_conversation()
-
-
-                st.rerun()
-
-            except Exception as e:
-
-                st.error(
-                    "Sohbet silinemedi."
-                )
-
-                st.exception(e)
+    return None, None, None
 
 
 # ============================================================
-# MAIN
+# IMAGE BYTES
 # ============================================================
 
-st.title(
-    "🤖 Kenz Asistan"
-)
-
-st.caption(
-    "Metin, fotoğraf, video ve ses analiz edebilen "
-    "kişisel yapay zeka asistanın."
-)
-
-
-# ============================================================
-# PREVIOUS MESSAGES
-# ============================================================
-
-for message in st.session_state.messages:
-
-    role = message.get(
-        "role",
-        "assistant"
-    )
-
-    content = message.get(
-        "content",
-        ""
-    )
-
-    image_url = message.get(
-        "image_url"
-    )
-
-
-    with st.chat_message(role):
-
-        if image_url:
-
-            st.image(
-                image_url,
-                use_container_width=True
-            )
-
-        if content:
-
-            st.markdown(
-                content
-            )
-
-
-# ============================================================
-# EMPTY CHAT
-# ============================================================
-
-if not st.session_state.messages:
-
-    with st.chat_message("assistant"):
-
-        st.markdown(
-            """
-### Merhaba 👋
-
-Ben **Kenz**.
-
-Bana metin yazabilir veya sohbet çubuğundaki
-**📎 butonundan dosya ekleyebilirsin.**
-
-Desteklenen medya:
-
-📷 Fotoğraf  
-🎥 Video  
-🎵 Ses  
-💬 Metin
-
-Örneğin:
-
-**"Bu kombin nasıl?"**
-
-**"Bu videoda ne oluyor?"**
-
-**"Bu ses kaydını özetle."**
-
-**"Bugün ne giysem?"**
-
-**"Gardırobumdan bana kombin yap."**
-"""
-        )
-
-
-# ============================================================
-# CHAT ATTACHMENT AREA
-# ============================================================
-
-st.markdown(
-    """
-<style>
-
-.chat-attachment-label {
-    font-size: 14px;
-    color: #888;
-    margin-bottom: 4px;
-}
-
-.attachment-box {
-    border: 1px solid rgba(128,128,128,.35);
-    border-radius: 12px;
-    padding: 10px;
-    margin-bottom: 8px;
-}
-
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# FILE SELECTOR
-# ============================================================
-
-with st.popover(
-    "📎",
-    use_container_width=False,
+def get_image_bytes(
+    file_bytes
 ):
 
-    st.markdown(
-        "### 📎 Dosya ekle"
-    )
+    if not file_bytes:
+        return None
 
-    attachment = st.file_uploader(
+    try:
 
-        "Fotoğraf, video veya ses seç",
-
-        type=[
-            # IMAGE
-            "jpg",
-            "jpeg",
-            "png",
-            "webp",
-
-            # VIDEO
-            "mp4",
-            "mov",
-            "webm",
-
-            # AUDIO
-            "mp3",
-            "wav",
-            "m4a",
-            "aac",
-            "ogg",
-        ],
-
-        accept_multiple_files=False,
-
-        key="chat_file_picker",
-    )
-
-
-    if attachment:
-
-        st.session_state.attached_file_bytes = (
-            attachment.getvalue()
+        image = Image.open(
+            io.BytesIO(file_bytes)
         )
 
-        st.session_state.attached_file_name = (
-            attachment.name
-        )
+        # Gemini/PIL uyumluluğu
+        if image.mode not in (
+            "RGB",
+            "RGBA"
+        ):
 
-        st.session_state.attached_file_type = (
-            attachment.type
-            or "application/octet-stream"
-        )
-
-
-# ============================================================
-# ATTACHED FILE PREVIEW
-# ============================================================
-
-attached_bytes = (
-    st.session_state.attached_file_bytes
-)
-
-attached_name = (
-    st.session_state.attached_file_name
-)
-
-attached_type = (
-    st.session_state.attached_file_type
-)
-
-
-if attached_bytes:
-
-    st.markdown(
-        '<div class="attachment-box">',
-        unsafe_allow_html=True
-    )
-
-
-    st.caption(
-        "📎 Eklenen dosya"
-    )
-
-
-    if attached_type.startswith("image/"):
-
-        st.image(
-            attached_bytes,
-            use_container_width=True
-        )
-
-
-    elif attached_type.startswith("video/"):
-
-        st.video(
-            attached_bytes
-        )
-
-
-    elif attached_type.startswith("audio/"):
-
-        st.audio(
-            attached_bytes
-        )
-
-
-    st.caption(
-        attached_name
-    )
-
-
-    if st.button(
-        "✕ Dosyayı kaldır",
-        key="remove_attachment",
-    ):
-
-        st.session_state.attached_file_bytes = None
-        st.session_state.attached_file_name = None
-        st.session_state.attached_file_type = None
-
-        st.rerun()
-
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# CHAT INPUT
-# ============================================================
-
-user_message = st.chat_input(
-    "Kenz'e mesaj yaz..."
-)
-
-
-# ============================================================
-# SEND
-# ============================================================
-
-if user_message:
-
-    user_message = user_message.strip()
-
-
-    if not user_message:
-
-        st.warning(
-            "Mesaj boş olamaz."
-        )
-
-        st.stop()
-
-
-    # ========================================================
-    # CURRENT FILE
-    # ========================================================
-
-    file_bytes = (
-        st.session_state.attached_file_bytes
-    )
-
-    file_name = (
-        st.session_state.attached_file_name
-    )
-
-    file_type = (
-        st.session_state.attached_file_type
-    )
-
-    file_url = None
-
-
-    # ========================================================
-    # CONVERSATION
-    # ========================================================
-
-    if not st.session_state.conversation_id:
-
-        if not start_new_conversation():
-
-            st.error(
-                "Sohbet oluşturulamadı."
+            image = image.convert(
+                "RGB"
             )
 
-            st.stop()
+        buffer = io.BytesIO()
+
+        image.save(
+            buffer,
+            format="JPEG"
+        )
+
+        return buffer.getvalue()
+
+    except Exception:
+
+        return None
+
+
+# ============================================================
+# GEMINI
+# ============================================================
+
+def ask_gemini(
+    prompt,
+    uploaded_file=None
+):
+
+    if not gemini_client:
+
+        raise Exception(
+            "GEMINI_API_KEY bulunamadı."
+        )
+
+
+    file_bytes, file_name, file_type = (
+        get_file_data(
+            uploaded_file
+        )
+    )
+
+
+    contents = []
 
 
     # ========================================================
-    # UPLOAD TO SUPABASE
+    # IMAGE
     # ========================================================
 
-    if file_bytes:
+    if (
+        file_bytes
+        and file_type
+        and file_type.startswith(
+            "image/"
+        )
+    ):
 
-        extension = ""
+        image_bytes = get_image_bytes(
+            file_bytes
+        )
+
+        if image_bytes:
+
+            image = Image.open(
+                io.BytesIO(
+                    image_bytes
+                )
+            )
+
+            contents.append(
+                image
+            )
+
+
+    # ========================================================
+    # VIDEO / AUDIO
+    # ========================================================
+
+    elif (
+        file_bytes
+        and file_type
+        and (
+            file_type.startswith("video/")
+            or file_type.startswith("audio/")
+        )
+    ):
+
+        suffix = ""
 
         if file_name and "." in file_name:
 
-            extension = (
+            suffix = (
                 "."
                 + file_name
                 .split(".")[-1]
@@ -724,440 +259,492 @@ if user_message:
             )
 
 
-        storage_name = (
-            "chat/"
-            + str(uuid.uuid4())
-            + extension
-        )
+        temp_path = None
 
 
         try:
 
-            file_url = upload_file(
-                file_bytes,
-                storage_name,
-                file_type,
-                "chat_images",
-            )
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix
+            ) as temp_file:
 
-        except Exception as e:
-
-            st.warning(
-                "Dosya Supabase'e kaydedilemedi."
-            )
-
-            st.exception(e)
-
-
-    # ========================================================
-    # SHOW USER MESSAGE
-    # ========================================================
-
-    with st.chat_message("user"):
-
-        if file_bytes:
-
-            if file_type.startswith("image/"):
-
-                st.image(
-                    file_bytes,
-                    use_container_width=True
-                )
-
-            elif file_type.startswith("video/"):
-
-                st.video(
+                temp_file.write(
                     file_bytes
                 )
 
-            elif file_type.startswith("audio/"):
+                temp_path = temp_file.name
 
-                st.audio(
-                    file_bytes
+
+            uploaded = (
+                gemini_client
+                .files
+                .upload(
+                    file=temp_path
                 )
-
-
-        st.markdown(
-            user_message
-        )
-
-
-    # ========================================================
-    # HISTORY
-    # ========================================================
-
-    history_text = ""
-
-
-    for message in st.session_state.messages:
-
-        role = message.get(
-            "role"
-        )
-
-        content = message.get(
-            "content",
-            ""
-        )
-
-
-        if not content:
-            continue
-
-
-        if role == "user":
-
-            history_text += (
-                "\nKullanıcı: "
-                + content
-            )
-
-        elif role == "assistant":
-
-            history_text += (
-                "\nKenz: "
-                + content
             )
 
 
-    # ========================================================
-    # WARDROBE
-    # ========================================================
-
-    wardrobe_text = ""
+            contents.append(
+                uploaded
+            )
 
 
-    try:
+        finally:
 
-        clothes = get_all_clothes(
-            client_id
-        )
+            if temp_path:
 
+                try:
 
-        if clothes:
-
-            for item in clothes:
-
-                wardrobe_text += (
-                    "\n- "
-                    + str(
-                        item.get("name")
-                        or "Kıyafet"
-                    )
-                )
-
-
-                if item.get("category"):
-
-                    wardrobe_text += (
-                        " | kategori: "
-                        + str(
-                            item["category"]
-                        )
+                    os.remove(
+                        temp_path
                     )
 
+                except Exception:
 
-                if item.get("color"):
-
-                    wardrobe_text += (
-                        " | renk: "
-                        + str(
-                            item["color"]
-                        )
-                    )
-
-
-                if item.get("style"):
-
-                    wardrobe_text += (
-                        " | stil: "
-                        + str(
-                            item["style"]
-                        )
-                    )
-
-
-                if item.get("season"):
-
-                    wardrobe_text += (
-                        " | sezon: "
-                        + str(
-                            item["season"]
-                        )
-                    )
-
-
-                if item.get("description"):
-
-                    wardrobe_text += (
-                        " | açıklama: "
-                        + str(
-                            item["description"]
-                        )
-                    )
-
-    except Exception:
-
-        wardrobe_text = ""
+                    pass
 
 
     # ========================================================
-    # SYSTEM PROMPT
+    # PROMPT
     # ========================================================
 
-    system_prompt = """
-Sen Kenz adında kişisel yapay zeka asistanısın.
-
-Kullanıcıyla Türkçe konuş.
-
-Samimi, doğal, akıllı ve yardımcı ol.
-
-Kullanıcı sana metin, fotoğraf, video veya
-ses gönderebilir.
-
-MEDYA:
-
-- Kullanıcı bir fotoğraf gönderirse fotoğrafı analiz et.
-- Kullanıcı video gönderirse videoyu analiz et.
-- Kullanıcı ses gönderirse sesi analiz et.
-- Dosyayı görmeden görmüş gibi davranma.
-- Kullanıcı dosya hakkında soru soruyorsa doğrudan
-  dosyaya göre cevap ver.
-
-SOHBET:
-
-Önceki konuşmaları dikkate al.
-Kullanıcının daha önce söylediği bilgileri
-gerektiğinde kullan.
-
-GARDIROP:
-
-Aşağıdaki liste kullanıcının kayıtlı gardırobudur.
-
-Kullanıcı:
-
-"Bugün ne giysem?"
-
-"Gardırobumdan kombin yap."
-
-"Bu pantolonla ne giyilir?"
-
-"Elimde ne var?"
-
-gibi sorular sorarsa öncelikle aşağıdaki
-gardırop verilerini kullan.
-
-Gardıropta bulunmayan bir parçayı kullanıcıda
-varmış gibi kabul etme.
-
-KULLANICININ GARDIROBU:
-
-""" + wardrobe_text + """
-
-ÖNCEKİ SOHBET:
-
-""" + history_text
-
-
-    # ========================================================
-    # CURRENT PROMPT
-    # ========================================================
-
-    prompt = (
-        system_prompt
-        + "\n\nYENİ KULLANICI MESAJI:\n"
-        + user_message
+    contents.append(
+        prompt
     )
 
 
     # ========================================================
-    # SAVE USER MESSAGE
+    # REQUEST
+    # ========================================================
+
+    response = (
+        gemini_client
+        .models
+        .generate_content(
+            model="gemini-3.6-flash",
+            contents=contents,
+        )
+    )
+
+
+    if not response:
+
+        raise Exception(
+            "Gemini cevap vermedi."
+        )
+
+
+    answer = getattr(
+        response,
+        "text",
+        None
+    )
+
+
+    if not answer:
+
+        raise Exception(
+            "Gemini boş cevap verdi."
+        )
+
+
+    return answer
+
+
+# ============================================================
+# OPENAI
+# ============================================================
+
+def ask_openai(
+    prompt,
+    uploaded_file=None
+):
+
+    if not openai_client:
+
+        raise Exception(
+            "OPENAI_API_KEY bulunamadı."
+        )
+
+
+    file_bytes, file_name, file_type = (
+        get_file_data(
+            uploaded_file
+        )
+    )
+
+
+    content = []
+
+
+    # ========================================================
+    # TEXT
+    # ========================================================
+
+    content.append(
+        {
+            "type": "input_text",
+            "text": prompt,
+        }
+    )
+
+
+    # ========================================================
+    # IMAGE
+    # ========================================================
+
+    if (
+        file_bytes
+        and file_type
+        and file_type.startswith(
+            "image/"
+        )
+    ):
+
+        encoded = base64.b64encode(
+            file_bytes
+        ).decode(
+            "utf-8"
+        )
+
+
+        content.append(
+            {
+                "type": "input_image",
+
+                "image_url":
+                    (
+                        "data:"
+                        + file_type
+                        + ";base64,"
+                        + encoded
+                    ),
+            }
+        )
+
+
+    # ========================================================
+    # REQUEST
+    # ========================================================
+
+    response = (
+        openai_client
+        .responses
+        .create(
+
+            model="gpt-5-mini",
+
+            input=[
+                {
+                    "role": "user",
+
+                    "content": content,
+                }
+            ],
+        )
+    )
+
+
+    if not response:
+
+        raise Exception(
+            "OpenAI cevap vermedi."
+        )
+
+
+    answer = getattr(
+        response,
+        "output_text",
+        None
+    )
+
+
+    if not answer:
+
+        raise Exception(
+            "OpenAI boş cevap verdi."
+        )
+
+
+    return answer
+
+
+# ============================================================
+# OPENROUTER
+# ============================================================
+
+def ask_openrouter(
+    prompt,
+    uploaded_file=None
+):
+
+    if not OPENROUTER_API_KEY:
+
+        raise Exception(
+            "OPENROUTER_API_KEY bulunamadı."
+        )
+
+
+    file_bytes, file_name, file_type = (
+        get_file_data(
+            uploaded_file
+        )
+    )
+
+
+    content = []
+
+
+    # ========================================================
+    # TEXT
+    # ========================================================
+
+    content.append(
+        {
+            "type": "text",
+            "text": prompt,
+        }
+    )
+
+
+    # ========================================================
+    # IMAGE
+    # ========================================================
+
+    if (
+        file_bytes
+        and file_type
+        and file_type.startswith(
+            "image/"
+        )
+    ):
+
+        encoded = base64.b64encode(
+            file_bytes
+        ).decode(
+            "utf-8"
+        )
+
+
+        content.append(
+            {
+                "type": "image_url",
+
+                "image_url":
+                    {
+                        "url":
+                            (
+                                "data:"
+                                + file_type
+                                + ";base64,"
+                                + encoded
+                            )
+                    },
+            }
+        )
+
+
+    # ========================================================
+    # REQUEST
+    # ========================================================
+
+    response = requests.post(
+
+        "https://openrouter.ai/api/v1/chat/completions",
+
+        headers={
+
+            "Authorization":
+                "Bearer "
+                + OPENROUTER_API_KEY,
+
+            "Content-Type":
+                "application/json",
+
+            "HTTP-Referer":
+                "https://kenzasistan-m-juobhsjgs4wqdjv7ez2nq9.streamlit.app",
+
+            "X-Title":
+                "Kenz Asistan",
+        },
+
+        json={
+
+            "model":
+                "openrouter/free",
+
+            "messages":
+                [
+                    {
+                        "role":
+                            "user",
+
+                        "content":
+                            content,
+                    }
+                ],
+        },
+
+        timeout=120,
+    )
+
+
+    if response.status_code != 200:
+
+        raise Exception(
+            "OpenRouter HTTP "
+            + str(
+                response.status_code
+            )
+            + ": "
+            + response.text
+        )
+
+
+    data = response.json()
+
+
+    try:
+
+        answer = (
+            data
+            ["choices"]
+            [0]
+            ["message"]
+            ["content"]
+        )
+
+    except Exception:
+
+        raise Exception(
+            "OpenRouter cevap formatı geçersiz."
+        )
+
+
+    if not answer:
+
+        raise Exception(
+            "OpenRouter boş cevap verdi."
+        )
+
+
+    return answer
+
+
+# ============================================================
+# MAIN ROUTER
+# ============================================================
+
+def ask_ai(
+    prompt,
+    uploaded_file=None,
+    image=None
+):
+
+    # --------------------------------------------------------
+    # GERİYE DÖNÜK UYUMLULUK
+    # --------------------------------------------------------
+
+    if uploaded_file is None and image is not None:
+
+        uploaded_file = image
+
+
+    errors = []
+
+
+    # ========================================================
+    # 1 — GEMINI
     # ========================================================
 
     try:
 
-        add_message(
-
-            conversation_id=(
-                st.session_state.conversation_id
-            ),
-
-            role="user",
-
-            content=user_message,
-
-            image_url=file_url,
-
-            provider=None,
+        answer = ask_gemini(
+            prompt,
+            uploaded_file
         )
+
+
+        st.session_state.last_provider = (
+            "Gemini"
+        )
+
+
+        return answer
+
 
     except Exception as e:
 
-        st.warning(
-            "Kullanıcı mesajı kaydedilemedi."
+        errors.append(
+            "Gemini: "
+            + str(e)
         )
 
-        st.exception(e)
+
+    # ========================================================
+    # 2 — OPENAI
+    # ========================================================
+
+    try:
+
+        answer = ask_openai(
+            prompt,
+            uploaded_file
+        )
+
+
+        st.session_state.last_provider = (
+            "OpenAI"
+        )
+
+
+        return answer
+
+
+    except Exception as e:
+
+        errors.append(
+            "OpenAI: "
+            + str(e)
+        )
 
 
     # ========================================================
-    # AI
+    # 3 — OPENROUTER
     # ========================================================
 
-    with st.chat_message("assistant"):
+    try:
 
-        with st.spinner(
-            "Kenz düşünüyor..."
-        ):
-
-            try:
-
-                answer = ask_ai(
-
-                    prompt=prompt,
-
-                    uploaded_file=None
-                    if not file_bytes
-                    else {
-                        "bytes": file_bytes,
-                        "name": file_name,
-                        "type": file_type,
-                    },
-                )
+        answer = ask_openrouter(
+            prompt,
+            uploaded_file
+        )
 
 
-                provider = (
-                    st.session_state.get(
-                        "last_provider"
-                    )
-                )
+        st.session_state.last_provider = (
+            "OpenRouter"
+        )
 
 
-                st.markdown(
-                    answer
-                )
+        return answer
 
 
-                # ==========================================
-                # SAVE AI
-                # ==========================================
+    except Exception as e:
 
-                add_message(
-
-                    conversation_id=(
-                        st.session_state.conversation_id
-                    ),
-
-                    role="assistant",
-
-                    content=answer,
-
-                    image_url=None,
-
-                    provider=provider,
-                )
+        errors.append(
+            "OpenRouter: "
+            + str(e)
+        )
 
 
-                # ==========================================
-                # SESSION
-                # ==========================================
+    # ========================================================
+    # ALL FAILED
+    # ========================================================
 
-                st.session_state.messages.append(
-                    {
-                        "role": "user",
-                        "content": user_message,
-                        "image_url": file_url,
-                        "provider": None,
-                    }
-                )
-
-
-                st.session_state.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": answer,
-                        "image_url": None,
-                        "provider": provider,
-                    }
-                )
-
-
-                # ==========================================
-                # TITLE
-                # ==========================================
-
-                conversations = get_conversations(
-                    client_id
-                )
-
-
-                current = None
-
-
-                for conversation in conversations:
-
-                    if (
-                        conversation["id"]
-                        ==
-                        st.session_state.conversation_id
-                    ):
-
-                        current = conversation
-                        break
-
-
-                if current:
-
-                    if (
-                        current.get("title")
-                        ==
-                        "Yeni sohbet"
-                    ):
-
-                        title = (
-                            user_message[:40]
-                            if user_message
-                            else "Medya sohbeti"
-                        )
-
-
-                        update_conversation_title(
-
-                            st.session_state.conversation_id,
-
-                            client_id,
-
-                            title,
-                        )
-
-
-                # ==========================================
-                # CLEAR ATTACHMENT
-                # ==========================================
-
-                st.session_state.attached_file_bytes = None
-                st.session_state.attached_file_name = None
-                st.session_state.attached_file_type = None
-
-
-                st.rerun()
-
-
-            except Exception as e:
-
-                st.error(
-                    "Kenz cevap veremedi."
-                )
-
-                st.exception(e)
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.divider()
-
-st.caption(
-    "Kenz • Metin + Görsel + Video + Ses"
-)
+    raise Exception(
+        "Tüm AI sağlayıcıları başarısız oldu.\n\n"
+        + "\n".join(
+            errors
+        )
+    )
