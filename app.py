@@ -13,9 +13,7 @@ from supabase_client import (
     delete_conversation,
     update_conversation_title,
     upload_file,
-    add_clothing_item,
     get_all_clothes,
-    delete_clothing_item,
 )
 
 
@@ -38,41 +36,25 @@ client_id = get_client_id()
 
 
 # ============================================================
-# SESSION
+# SESSION STATE
 # ============================================================
 
 defaults = {
+    "conversation_id": None,
+    "messages": [],
+    "initialized": False,
+    "last_provider": None,
+    "show_wardrobe": False,
 
-    "conversation_id":
-        None,
-
-    "messages":
-        [],
-
-    "initialized":
-        False,
-
-    "last_provider":
-        None,
-
-    "selected_file":
-        None,
-
-    "selected_file_name":
-        None,
-
-    "selected_file_type":
-        None,
-
-    "show_wardrobe":
-        False,
+    # Chat attachment
+    "attached_file_bytes": None,
+    "attached_file_name": None,
+    "attached_file_type": None,
 }
-
 
 for key, value in defaults.items():
 
     if key not in st.session_state:
-
         st.session_state[key] = value
 
 
@@ -90,30 +72,20 @@ def start_new_conversation():
     if not conversation:
         return False
 
-    st.session_state.conversation_id = (
-        conversation["id"]
-    )
-
+    st.session_state.conversation_id = conversation["id"]
     st.session_state.messages = []
 
     return True
 
 
-def load_conversation(
-    conversation_id
-):
+def load_conversation(conversation_id):
 
     messages = get_messages(
         conversation_id
     )
 
-    st.session_state.conversation_id = (
-        conversation_id
-    )
-
-    st.session_state.messages = (
-        messages or []
-    )
+    st.session_state.conversation_id = conversation_id
+    st.session_state.messages = messages or []
 
 
 # ============================================================
@@ -142,12 +114,8 @@ if not st.session_state.initialized:
 
     except Exception as e:
 
-        st.error(
-            "Kenz başlatılamadı."
-        )
-
+        st.error("Kenz başlatılamadı.")
         st.exception(e)
-
         st.stop()
 
 
@@ -201,9 +169,7 @@ with st.sidebar:
 
     if st.session_state.show_wardrobe:
 
-        st.subheader(
-            "👕 Gardırobum"
-        )
+        st.subheader("👕 Gardırobum")
 
         try:
 
@@ -241,6 +207,7 @@ with st.sidebar:
                     "image_url"
                 )
 
+
                 if image_url:
 
                     st.image(
@@ -248,23 +215,41 @@ with st.sidebar:
                         use_container_width=True
                     )
 
+
                 st.write(
                     "👕 " + name
                 )
+
 
                 if item.get("color"):
 
                     st.caption(
                         "Renk: "
-                        + item["color"]
+                        + str(
+                            item["color"]
+                        )
                     )
+
 
                 if item.get("style"):
 
                     st.caption(
                         "Stil: "
-                        + item["style"]
+                        + str(
+                            item["style"]
+                        )
                     )
+
+
+                if item.get("season"):
+
+                    st.caption(
+                        "Sezon: "
+                        + str(
+                            item["season"]
+                        )
+                    )
+
 
                 st.divider()
 
@@ -279,7 +264,7 @@ with st.sidebar:
 
 
     # ========================================================
-    # HISTORY
+    # CHAT HISTORY
     # ========================================================
 
     st.subheader(
@@ -313,14 +298,10 @@ with st.sidebar:
 
     for conversation in conversations:
 
-        conversation_id = (
-            conversation["id"]
-        )
+        conversation_id = conversation["id"]
 
         title = (
-            conversation.get(
-                "title"
-            )
+            conversation.get("title")
             or "Yeni sohbet"
         )
 
@@ -332,9 +313,7 @@ with st.sidebar:
 
         if st.button(
             "💬 " + title,
-            key=
-                "conversation_"
-                + conversation_id,
+            key="conversation_" + conversation_id,
             use_container_width=True,
         ):
 
@@ -377,32 +356,42 @@ with st.sidebar:
             use_container_width=True,
         ):
 
-            delete_conversation(
-                st.session_state.conversation_id,
-                client_id,
-            )
+            try:
 
-            st.session_state.conversation_id = (
-                None
-            )
-
-            st.session_state.messages = []
-
-            conversations = get_conversations(
-                client_id
-            )
-
-            if conversations:
-
-                load_conversation(
-                    conversations[0]["id"]
+                delete_conversation(
+                    st.session_state.conversation_id,
+                    client_id,
                 )
 
-            else:
+                st.session_state.conversation_id = None
+                st.session_state.messages = []
 
-                start_new_conversation()
 
-            st.rerun()
+                conversations = get_conversations(
+                    client_id
+                )
+
+
+                if conversations:
+
+                    load_conversation(
+                        conversations[0]["id"]
+                    )
+
+                else:
+
+                    start_new_conversation()
+
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    "Sohbet silinemedi."
+                )
+
+                st.exception(e)
 
 
 # ============================================================
@@ -462,9 +451,7 @@ for message in st.session_state.messages:
 
 if not st.session_state.messages:
 
-    with st.chat_message(
-        "assistant"
-    ):
+    with st.chat_message("assistant"):
 
         st.markdown(
             """
@@ -472,14 +459,15 @@ if not st.session_state.messages:
 
 Ben **Kenz**.
 
-Bana:
+Bana metin yazabilir veya sohbet çubuğundaki
+**📎 butonundan dosya ekleyebilirsin.**
+
+Desteklenen medya:
 
 📷 Fotoğraf  
 🎥 Video  
 🎵 Ses  
 💬 Metin
-
-gönderebilirsin.
 
 Örneğin:
 
@@ -497,87 +485,163 @@ gönderebilirsin.
 
 
 # ============================================================
-# FILE UPLOAD
+# CHAT ATTACHMENT AREA
 # ============================================================
 
-uploaded_file = st.file_uploader(
+st.markdown(
+    """
+<style>
 
-    "📎 Dosya ekle",
+.chat-attachment-label {
+    font-size: 14px;
+    color: #888;
+    margin-bottom: 4px;
+}
 
-    type=[
+.attachment-box {
+    border: 1px solid rgba(128,128,128,.35);
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
 
-        # Images
-        "jpg",
-        "jpeg",
-        "png",
-        "webp",
-
-        # Video
-        "mp4",
-        "mov",
-        "webm",
-
-        # Audio
-        "mp3",
-        "wav",
-        "m4a",
-        "aac",
-        "ogg",
-    ],
-
-    accept_multiple_files=False,
-
-    key="media_uploader",
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# FILE PREVIEW
+# FILE SELECTOR
 # ============================================================
 
-if uploaded_file:
-
-    file_type = (
-        uploaded_file.type
-        or ""
-    )
-
+with st.popover(
+    "📎",
+    use_container_width=False,
+):
 
     st.markdown(
-        "### 📎 Eklenen dosya"
+        "### 📎 Dosya ekle"
+    )
+
+    attachment = st.file_uploader(
+
+        "Fotoğraf, video veya ses seç",
+
+        type=[
+            # IMAGE
+            "jpg",
+            "jpeg",
+            "png",
+            "webp",
+
+            # VIDEO
+            "mp4",
+            "mov",
+            "webm",
+
+            # AUDIO
+            "mp3",
+            "wav",
+            "m4a",
+            "aac",
+            "ogg",
+        ],
+
+        accept_multiple_files=False,
+
+        key="chat_file_picker",
     )
 
 
-    if file_type.startswith(
-        "image/"
-    ):
+    if attachment:
+
+        st.session_state.attached_file_bytes = (
+            attachment.getvalue()
+        )
+
+        st.session_state.attached_file_name = (
+            attachment.name
+        )
+
+        st.session_state.attached_file_type = (
+            attachment.type
+            or "application/octet-stream"
+        )
+
+
+# ============================================================
+# ATTACHED FILE PREVIEW
+# ============================================================
+
+attached_bytes = (
+    st.session_state.attached_file_bytes
+)
+
+attached_name = (
+    st.session_state.attached_file_name
+)
+
+attached_type = (
+    st.session_state.attached_file_type
+)
+
+
+if attached_bytes:
+
+    st.markdown(
+        '<div class="attachment-box">',
+        unsafe_allow_html=True
+    )
+
+
+    st.caption(
+        "📎 Eklenen dosya"
+    )
+
+
+    if attached_type.startswith("image/"):
 
         st.image(
-            uploaded_file,
+            attached_bytes,
             use_container_width=True
         )
 
 
-    elif file_type.startswith(
-        "video/"
-    ):
+    elif attached_type.startswith("video/"):
 
         st.video(
-            uploaded_file
+            attached_bytes
         )
 
 
-    elif file_type.startswith(
-        "audio/"
-    ):
+    elif attached_type.startswith("audio/"):
 
         st.audio(
-            uploaded_file
+            attached_bytes
         )
 
 
     st.caption(
-        uploaded_file.name
+        attached_name
+    )
+
+
+    if st.button(
+        "✕ Dosyayı kaldır",
+        key="remove_attachment",
+    ):
+
+        st.session_state.attached_file_bytes = None
+        st.session_state.attached_file_name = None
+        st.session_state.attached_file_type = None
+
+        st.rerun()
+
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True
     )
 
 
@@ -596,9 +660,7 @@ user_message = st.chat_input(
 
 if user_message:
 
-    user_message = (
-        user_message.strip()
-    )
+    user_message = user_message.strip()
 
 
     if not user_message:
@@ -611,31 +673,26 @@ if user_message:
 
 
     # ========================================================
-    # FILE BYTES
+    # CURRENT FILE
     # ========================================================
 
-    file_bytes = None
+    file_bytes = (
+        st.session_state.attached_file_bytes
+    )
+
+    file_name = (
+        st.session_state.attached_file_name
+    )
+
+    file_type = (
+        st.session_state.attached_file_type
+    )
+
     file_url = None
-    file_type = None
-    file_name = None
-
-
-    if uploaded_file:
-
-        file_bytes = uploaded_file.getvalue()
-
-        file_type = (
-            uploaded_file.type
-            or "application/octet-stream"
-        )
-
-        file_name = (
-            uploaded_file.name
-        )
 
 
     # ========================================================
-    # CHAT ID
+    # CONVERSATION
     # ========================================================
 
     if not st.session_state.conversation_id:
@@ -650,14 +707,14 @@ if user_message:
 
 
     # ========================================================
-    # UPLOAD
+    # UPLOAD TO SUPABASE
     # ========================================================
 
     if file_bytes:
 
         extension = ""
 
-        if "." in file_name:
+        if file_name and "." in file_name:
 
             extension = (
                 "."
@@ -696,32 +753,24 @@ if user_message:
     # SHOW USER MESSAGE
     # ========================================================
 
-    with st.chat_message(
-        "user"
-    ):
+    with st.chat_message("user"):
 
         if file_bytes:
 
-            if file_type.startswith(
-                "image/"
-            ):
+            if file_type.startswith("image/"):
 
                 st.image(
                     file_bytes,
                     use_container_width=True
                 )
 
-            elif file_type.startswith(
-                "video/"
-            ):
+            elif file_type.startswith("video/"):
 
                 st.video(
                     file_bytes
                 )
 
-            elif file_type.startswith(
-                "audio/"
-            ):
+            elif file_type.startswith("audio/"):
 
                 st.audio(
                     file_bytes
@@ -772,7 +821,7 @@ if user_message:
 
 
     # ========================================================
-    # WARDROBE MEMORY
+    # WARDROBE
     # ========================================================
 
     wardrobe_text = ""
@@ -784,53 +833,68 @@ if user_message:
             client_id
         )
 
-        for item in clothes:
 
-            wardrobe_text += (
-                "\n- "
-                + str(
-                    item.get(
-                        "name"
-                    )
-                    or "Kıyafet"
-                )
-            )
+        if clothes:
 
-            if item.get("category"):
+            for item in clothes:
 
                 wardrobe_text += (
-                    " | kategori: "
+                    "\n- "
                     + str(
-                        item["category"]
+                        item.get("name")
+                        or "Kıyafet"
                     )
                 )
 
-            if item.get("color"):
 
-                wardrobe_text += (
-                    " | renk: "
-                    + str(
-                        item["color"]
+                if item.get("category"):
+
+                    wardrobe_text += (
+                        " | kategori: "
+                        + str(
+                            item["category"]
+                        )
                     )
-                )
 
-            if item.get("style"):
 
-                wardrobe_text += (
-                    " | stil: "
-                    + str(
-                        item["style"]
+                if item.get("color"):
+
+                    wardrobe_text += (
+                        " | renk: "
+                        + str(
+                            item["color"]
+                        )
                     )
-                )
 
-            if item.get("season"):
 
-                wardrobe_text += (
-                    " | sezon: "
-                    + str(
-                        item["season"]
+                if item.get("style"):
+
+                    wardrobe_text += (
+                        " | stil: "
+                        + str(
+                            item["style"]
+                        )
                     )
-                )
+
+
+                if item.get("season"):
+
+                    wardrobe_text += (
+                        " | sezon: "
+                        + str(
+                            item["season"]
+                        )
+                    )
+
+
+                if item.get("description"):
+
+                    wardrobe_text += (
+                        " | açıklama: "
+                        + str(
+                            item["description"]
+                        )
+                    )
 
     except Exception:
 
@@ -838,11 +902,10 @@ if user_message:
 
 
     # ========================================================
-    # SYSTEM
+    # SYSTEM PROMPT
     # ========================================================
 
     system_prompt = """
-
 Sen Kenz adında kişisel yapay zeka asistanısın.
 
 Kullanıcıyla Türkçe konuş.
@@ -852,29 +915,42 @@ Samimi, doğal, akıllı ve yardımcı ol.
 Kullanıcı sana metin, fotoğraf, video veya
 ses gönderebilir.
 
-MEDYA KURALLARI:
+MEDYA:
 
-- Görsel gönderilirse gerçekten analiz et.
-- Video gönderilirse videonun içeriğini analiz et.
-- Ses gönderilirse sesi analiz et ve gerekiyorsa
-  konuşmayı yazıya dök.
-- Medyayı görmediğin halde görmüş gibi davranma.
+- Kullanıcı bir fotoğraf gönderirse fotoğrafı analiz et.
+- Kullanıcı video gönderirse videoyu analiz et.
+- Kullanıcı ses gönderirse sesi analiz et.
+- Dosyayı görmeden görmüş gibi davranma.
 - Kullanıcı dosya hakkında soru soruyorsa doğrudan
-  dosyayı analiz ederek cevap ver.
+  dosyaya göre cevap ver.
+
+SOHBET:
+
+Önceki konuşmaları dikkate al.
+Kullanıcının daha önce söylediği bilgileri
+gerektiğinde kullan.
 
 GARDIROP:
 
-Kullanıcının gardırobunda bulunan parçalar aşağıdadır.
+Aşağıdaki liste kullanıcının kayıtlı gardırobudur.
 
-Kullanıcı "bugün ne giysem?",
-"gardırobumdan kombin yap",
-"şu pantolonla ne giyilir?" gibi sorular
-sorarsa öncelikle bu parçaları kullan.
+Kullanıcı:
 
-Gardıropta olmayan bir parçayı kullanıcıda
+"Bugün ne giysem?"
+
+"Gardırobumdan kombin yap."
+
+"Bu pantolonla ne giyilir?"
+
+"Elimde ne var?"
+
+gibi sorular sorarsa öncelikle aşağıdaki
+gardırop verilerini kullan.
+
+Gardıropta bulunmayan bir parçayı kullanıcıda
 varmış gibi kabul etme.
 
-GARDIROP:
+KULLANICININ GARDIROBU:
 
 """ + wardrobe_text + """
 
@@ -889,7 +965,7 @@ GARDIROP:
 
     prompt = (
         system_prompt
-        + "\n\nYENİ MESAJ:\n"
+        + "\n\nYENİ KULLANICI MESAJI:\n"
         + user_message
     )
 
@@ -902,9 +978,9 @@ GARDIROP:
 
         add_message(
 
-            conversation_id=
-                st.session_state
-                .conversation_id,
+            conversation_id=(
+                st.session_state.conversation_id
+            ),
 
             role="user",
 
@@ -928,9 +1004,7 @@ GARDIROP:
     # AI
     # ========================================================
 
-    with st.chat_message(
-        "assistant"
-    ):
+    with st.chat_message("assistant"):
 
         with st.spinner(
             "Kenz düşünüyor..."
@@ -942,14 +1016,18 @@ GARDIROP:
 
                     prompt=prompt,
 
-                    uploaded_file=
-                        uploaded_file,
+                    uploaded_file=None
+                    if not file_bytes
+                    else {
+                        "bytes": file_bytes,
+                        "name": file_name,
+                        "type": file_type,
+                    },
                 )
 
 
                 provider = (
-                    st.session_state
-                    .get(
+                    st.session_state.get(
                         "last_provider"
                     )
                 )
@@ -960,15 +1038,15 @@ GARDIROP:
                 )
 
 
-                # ============================================
+                # ==========================================
                 # SAVE AI
-                # ============================================
+                # ==========================================
 
                 add_message(
 
-                    conversation_id=
-                        st.session_state
-                        .conversation_id,
+                    conversation_id=(
+                        st.session_state.conversation_id
+                    ),
 
                     role="assistant",
 
@@ -980,52 +1058,36 @@ GARDIROP:
                 )
 
 
-                # ============================================
+                # ==========================================
                 # SESSION
-                # ============================================
+                # ==========================================
 
                 st.session_state.messages.append(
                     {
-                        "role":
-                            "user",
-
-                        "content":
-                            user_message,
-
-                        "image_url":
-                            file_url,
-
-                        "provider":
-                            None,
+                        "role": "user",
+                        "content": user_message,
+                        "image_url": file_url,
+                        "provider": None,
                     }
                 )
 
 
                 st.session_state.messages.append(
                     {
-                        "role":
-                            "assistant",
-
-                        "content":
-                            answer,
-
-                        "image_url":
-                            None,
-
-                        "provider":
-                            provider,
+                        "role": "assistant",
+                        "content": answer,
+                        "image_url": None,
+                        "provider": provider,
                     }
                 )
 
 
-                # ============================================
+                # ==========================================
                 # TITLE
-                # ============================================
+                # ==========================================
 
-                conversations = (
-                    get_conversations(
-                        client_id
-                    )
+                conversations = get_conversations(
+                    client_id
                 )
 
 
@@ -1037,21 +1099,17 @@ GARDIROP:
                     if (
                         conversation["id"]
                         ==
-                        st.session_state
-                        .conversation_id
+                        st.session_state.conversation_id
                     ):
 
                         current = conversation
-
                         break
 
 
                 if current:
 
                     if (
-                        current.get(
-                            "title"
-                        )
+                        current.get("title")
                         ==
                         "Yeni sohbet"
                     ):
@@ -1065,13 +1123,24 @@ GARDIROP:
 
                         update_conversation_title(
 
-                            st.session_state
-                            .conversation_id,
+                            st.session_state.conversation_id,
 
                             client_id,
 
                             title,
                         )
+
+
+                # ==========================================
+                # CLEAR ATTACHMENT
+                # ==========================================
+
+                st.session_state.attached_file_bytes = None
+                st.session_state.attached_file_name = None
+                st.session_state.attached_file_type = None
+
+
+                st.rerun()
 
 
             except Exception as e:
