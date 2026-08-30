@@ -45,6 +45,26 @@ def get_supabase() -> Client:
 
 def get_client_id():
 
+    # Öncelik: Streamlit Secret
+    client_id = st.secrets.get(
+        "KENZ_CLIENT_ID",
+        ""
+    )
+
+    if client_id:
+        return str(client_id)
+
+    # Environment variable
+    client_id = os.environ.get(
+        "KENZ_CLIENT_ID",
+        ""
+    )
+
+    if client_id:
+        return str(client_id)
+
+    # Secret yoksa session ID kullan
+    # Bu sadece yedek yöntemdir.
     if "client_id" not in st.session_state:
 
         st.session_state.client_id = str(
@@ -92,6 +112,10 @@ def create_conversation(
     return rows[0]
 
 
+# ============================================================
+# GET CONVERSATIONS
+# ============================================================
+
 def get_conversations(
     client_id=None
 ):
@@ -118,12 +142,19 @@ def get_conversations(
         .execute()
     )
 
-    return getattr(
-        result,
-        "data",
-        []
-    ) or []
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
 
+
+# ============================================================
+# GET SINGLE CONVERSATION
+# ============================================================
 
 def get_conversation(
     conversation_id,
@@ -151,11 +182,14 @@ def get_conversation(
         .execute()
     )
 
-    rows = getattr(
-        result,
-        "data",
-        []
-    ) or []
+    rows = (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
 
     if rows:
         return rows[0]
@@ -181,6 +215,7 @@ def update_conversation_title(
         .update(
             {
                 "title": title,
+
                 "updated_at":
                     datetime.now(
                         timezone.utc
@@ -198,11 +233,14 @@ def update_conversation_title(
         .execute()
     )
 
-    return getattr(
-        result,
-        "data",
-        []
-    ) or []
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
 
 
 # ============================================================
@@ -262,12 +300,19 @@ def get_messages(
         .execute()
     )
 
-    return getattr(
-        result,
-        "data",
-        []
-    ) or []
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
 
+
+# ============================================================
+# ADD MESSAGE
+# ============================================================
 
 def add_message(
     conversation_id,
@@ -303,8 +348,7 @@ def add_message(
         .execute()
     )
 
-
-    # Sohbetin son kullanım zamanını güncelle
+    # Sohbetin güncellenme zamanını değiştir
     (
         supabase
         .table("conversations")
@@ -323,16 +367,18 @@ def add_message(
         .execute()
     )
 
-
-    return getattr(
-        result,
-        "data",
-        []
-    ) or []
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
 
 
 # ============================================================
-# STORAGE
+# STORAGE - IMAGE UPLOAD
 # ============================================================
 
 def upload_image(
@@ -345,6 +391,14 @@ def upload_image(
 
     try:
 
+        mime_type = "image/jpeg"
+
+        if file_name.lower().endswith(".png"):
+            mime_type = "image/png"
+
+        elif file_name.lower().endswith(".webp"):
+            mime_type = "image/webp"
+
         supabase.storage.from_(
             bucket_name
         ).upload(
@@ -352,14 +406,14 @@ def upload_image(
             file_bytes,
             {
                 "content-type":
-                    "image/jpeg",
+                    mime_type,
 
                 "upsert":
                     "true"
             }
         )
 
-        return (
+        public_url = (
             supabase
             .storage
             .from_(bucket_name)
@@ -367,6 +421,8 @@ def upload_image(
                 file_name
             )
         )
+
+        return public_url
 
     except Exception as e:
 
@@ -379,7 +435,7 @@ def upload_image(
 
 
 # ============================================================
-# GARDIROP
+# GARDIROP - ADD
 # ============================================================
 
 def add_clothing_item(
@@ -391,42 +447,60 @@ def add_clothing_item(
 
     supabase = get_supabase()
 
+    client_id = get_client_id()
+
+    data = {
+        "client_id":
+            str(client_id),
+
+        "image_url":
+            image_url,
+
+        "category":
+            category,
+
+        "color":
+            color,
+
+        "description":
+            description,
+    }
+
     result = (
         supabase
         .table("clothes")
-        .insert(
-            {
-                "image_url":
-                    image_url,
-
-                "category":
-                    category,
-
-                "color":
-                    color,
-
-                "description":
-                    description,
-            }
-        )
+        .insert(data)
         .execute()
     )
 
-    return getattr(
-        result,
-        "data",
-        []
-    ) or []
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
 
+
+# ============================================================
+# GARDIROP - GET
+# ============================================================
 
 def get_all_clothes():
 
     supabase = get_supabase()
 
+    client_id = get_client_id()
+
     result = (
         supabase
         .table("clothes")
         .select("*")
+        .eq(
+            "client_id",
+            str(client_id)
+        )
         .order(
             "added_date",
             desc=True
@@ -434,8 +508,41 @@ def get_all_clothes():
         .execute()
     )
 
-    return getattr(
-        result,
-        "data",
-        []
-    ) or []
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
+
+
+# ============================================================
+# GARDIROP - DELETE
+# ============================================================
+
+def delete_clothing_item(
+    clothing_id
+):
+
+    supabase = get_supabase()
+
+    client_id = get_client_id()
+
+    (
+        supabase
+        .table("clothes")
+        .delete()
+        .eq(
+            "id",
+            clothing_id
+        )
+        .eq(
+            "client_id",
+            str(client_id)
+        )
+        .execute()
+    )
+
+    return True
