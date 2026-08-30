@@ -1,93 +1,179 @@
 import os
-import json
-import google.generativeai as genai
-from PIL import Image
 import io
+
+from PIL import Image
 import streamlit as st
 
-def configure_api():
-    api_key = os.environ.get("GEMINI_API_KEY")
-    try:
-        if not api_key: api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        pass
-        
-    if not api_key:
-        return False
-    genai.configure(api_key=api_key)
-    return True
+from google import genai
 
-def extract_text(response):
-    """Gemini cevabından metni güvenle çıkarır."""
-    if hasattr(response, 'text'):
+
+# --------------------------------------------------
+# API
+# --------------------------------------------------
+
+def get_api_key():
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+
+    if not api_key:
+
         try:
-            return response.text
+            api_key = st.secrets["GEMINI_API_KEY"]
         except Exception:
             pass
-    if isinstance(response, dict):
-        if 'candidates' in response and len(response['candidates']) > 0:
-            try:
-                return response['candidates'][0]['content']['parts'][0]['text']
-            except Exception:
-                pass
-    return str(response)
 
-def analyze_clothing_item(image_bytes):
-    if not configure_api():
-        raise ValueError("API anahtarı bulunamadı.")
-    
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    img = Image.open(io.BytesIO(image_bytes))
-    
-    prompt = """
-    Bu fotoğraftaki kıyafeti bir gardırop asistanı olarak analiz et. Lütfen cevabını SADECE geçerli bir JSON formatında ver. 
-    JSON formatı şu anahtarları tam olarak içermelidir:
-    - "category": Kıyafetin türü (örneğin: Tişört, Pantolon, Elbise, Kazak, Ceket vb.)
-    - "color": Kıyafetin baskın rengi veya renkleri
-    - "description": Kıyafetin stili, deseni, materyali ve genel görünümü hakkında yaratıcı ve kısa bir açıklama (1-2 cümle)
-    
-    Sadece JSON çıktısı ver, markdown işaretleri kullanma.
-    """
-    
-    try:
-        response = model.generate_content([prompt, img])
-        text = extract_text(response).strip()
-        
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.endswith("```"):
-            text = text[:-3]
-        
-        return json.loads(text.strip())
-    except Exception as e:
-        print(f"Gemini API Hatası: {e}")
-        return {
-            "category": "Bilinmiyor",
-            "color": "Bilinmiyor",
-            "description": f"Analiz yapılamadı: {str(e)}"
-        }
+    return api_key
 
-def rate_outfit(image_bytes):
-    if not configure_api():
-        raise ValueError("API anahtarı bulunamadı.")
-        
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    img = Image.open(io.BytesIO(image_bytes))
-    
-    prompt = """
-    Sen uzman bir moda asistanı ve stilistsin. Bu fotoğraftaki kombini (outfit) analiz et.
-    Kullanıcıya samimi, motive edici, yapıcı ve tamamen Türkçe bir değerlendirme yaz.
-    
-    Şu başlıklara değinmelisin:
-    1. Renklerin uyumu
-    2. Tarz ve parçaların birbiriyle uyumu
-    3. Gelişim tavsiyesi (Daha iyi yapmak için ne değiştirilebilir?)
-    
-    En alt satırda kombine 10 üzerinden bir puan ver. (Örnek: "Puan: 8/10")
-    """
-    
-    try:
-        response = model.generate_content([prompt, img])
-        return extract_text(response)
-    except Exception as e:
-        return f"Kombin değerlendirilirken bir hata oluştu: {str(e)}"
+
+def get_client():
+
+    api_key = get_api_key()
+
+    if not api_key:
+        raise ValueError(
+            "GEMINI_API_KEY bulunamadı."
+        )
+
+    return genai.Client(
+        api_key=api_key
+    )
+
+
+# --------------------------------------------------
+# KENZ SYSTEM PROMPT
+# --------------------------------------------------
+
+SYSTEM_PROMPT = """
+Sen Kenz adında kişisel bir yapay zekâ asistanısın.
+
+Kullanıcıyla Türkçe konuş.
+
+Samimi, doğal, akıllı ve yardımcı ol.
+
+Kullanıcı sana normal sorular sorabilir.
+Bu sorulara normal bir yapay zekâ asistanı gibi cevap ver.
+
+Kullanıcı görsel gönderirse görseli gerçekten analiz et.
+
+Özellikle:
+
+- kıyafet
+- kombin
+- renk uyumu
+- stil
+- gardırop
+- görünüm
+- ürün
+- mekan
+- nesne
+- ekran görüntüsü
+
+gibi görselleri analiz edebilirsin.
+
+Kullanıcı kombin hakkında soru sorarsa:
+
+1. Görseldeki parçaları belirle.
+2. Renkleri analiz et.
+3. Parçaların birbirleriyle uyumunu değerlendir.
+4. Kullanıcının sorusuna doğrudan cevap ver.
+5. Gerekiyorsa alternatif öner.
+6. Kullanıcı puan isterse 10 üzerinden puan ver.
+
+Cevapların gereksiz derecede uzun olmasın.
+
+Kullanıcı açıkça detay istemediği sürece kısa,
+net ve doğal cevaplar ver.
+
+Asla görseli görmediğin halde görmüş gibi davranma.
+"""
+
+
+# --------------------------------------------------
+# CHAT
+# --------------------------------------------------
+
+def chat_with_kenz(
+    user_text,
+    image_bytes=None,
+    history=None
+):
+
+    client = get_client()
+
+    contents = [
+        SYSTEM_PROMPT
+    ]
+
+
+    # --------------------------------------------------
+    # GEÇMİŞ
+    # --------------------------------------------------
+
+    if history:
+
+        for message in history:
+
+            role = message.get("role")
+
+            text = message.get("text", "")
+
+            if role == "user":
+
+                if text:
+                    contents.append(
+                        f"Kullanıcı: {text}"
+                    )
+
+            elif role == "assistant":
+
+                if text:
+                    contents.append(
+                        f"Kenz: {text}"
+                    )
+
+
+    # --------------------------------------------------
+    # GÜNCEL MESAJ
+    # --------------------------------------------------
+
+    if user_text:
+
+        contents.append(
+            f"Kullanıcı: {user_text}"
+        )
+
+    else:
+
+        contents.append(
+            "Kullanıcı bir görsel gönderdi."
+        )
+
+
+    # --------------------------------------------------
+    # GÖRSEL
+    # --------------------------------------------------
+
+    if image_bytes:
+
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        )
+
+        contents.append(image)
+
+
+    # --------------------------------------------------
+    # GEMINI
+    # --------------------------------------------------
+
+    response = client.models.generate_content(
+        model="gemini-3.7-flash",
+        contents=contents
+    )
+
+
+    if not response.text:
+
+        return "Üzgünüm, bu isteğe cevap oluşturamadım."
+
+    return response.text
