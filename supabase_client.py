@@ -7,7 +7,7 @@ from supabase import create_client, Client
 
 
 # ============================================================
-# SUPABASE CONNECTION
+# SUPABASE
 # ============================================================
 
 @st.cache_resource
@@ -24,19 +24,12 @@ def get_supabase() -> Client:
     )
 
     if not url:
-        raise RuntimeError(
-            "SUPABASE_URL bulunamadı."
-        )
+        raise RuntimeError("SUPABASE_URL bulunamadı.")
 
     if not key:
-        raise RuntimeError(
-            "SUPABASE_KEY bulunamadı."
-        )
+        raise RuntimeError("SUPABASE_KEY bulunamadı.")
 
-    return create_client(
-        url,
-        key
-    )
+    return create_client(url, key)
 
 
 # ============================================================
@@ -68,37 +61,22 @@ def create_conversation(
     if client_id is None:
         client_id = get_client_id()
 
-    data = {
-        "client_id": str(client_id),
-        "title": title,
-    }
-
     result = (
         supabase
         .table("conversations")
-        .insert(data)
+        .insert({
+            "client_id": str(client_id),
+            "title": title,
+        })
         .execute()
     )
 
-    rows = getattr(
-        result,
-        "data",
-        None
-    )
+    rows = getattr(result, "data", []) or []
 
-    if not rows:
-        return None
-
-    return rows[0]
+    return rows[0] if rows else None
 
 
-# ============================================================
-# TÜM SOHBETLER
-# ============================================================
-
-def get_conversations(
-    client_id=None
-):
+def get_conversations(client_id=None):
 
     supabase = get_supabase()
 
@@ -122,19 +100,8 @@ def get_conversations(
         .execute()
     )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    return getattr(result, "data", []) or []
 
-
-# ============================================================
-# TEK SOHBET
-# ============================================================
 
 def get_conversation(
     conversation_id,
@@ -150,36 +117,16 @@ def get_conversation(
         supabase
         .table("conversations")
         .select("*")
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "client_id",
-            str(client_id)
-        )
+        .eq("id", conversation_id)
+        .eq("client_id", str(client_id))
         .limit(1)
         .execute()
     )
 
-    rows = (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    rows = getattr(result, "data", []) or []
 
-    if rows:
-        return rows[0]
+    return rows[0] if rows else None
 
-    return None
-
-
-# ============================================================
-# SOHBET BAŞLIĞI GÜNCELLE
-# ============================================================
 
 def update_conversation_title(
     conversation_id,
@@ -192,40 +139,19 @@ def update_conversation_title(
     result = (
         supabase
         .table("conversations")
-        .update(
-            {
-                "title": title,
-
-                "updated_at":
-                    datetime.now(
-                        timezone.utc
-                    ).isoformat()
-            }
-        )
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "client_id",
-            str(client_id)
-        )
+        .update({
+            "title": title,
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat()
+        })
+        .eq("id", conversation_id)
+        .eq("client_id", str(client_id))
         .execute()
     )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    return getattr(result, "data", []) or []
 
-
-# ============================================================
-# SOHBET SİL
-# ============================================================
 
 def delete_conversation(
     conversation_id,
@@ -241,14 +167,8 @@ def delete_conversation(
         supabase
         .table("conversations")
         .delete()
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "client_id",
-            str(client_id)
-        )
+        .eq("id", conversation_id)
+        .eq("client_id", str(client_id))
         .execute()
     )
 
@@ -259,9 +179,7 @@ def delete_conversation(
 # MESSAGES
 # ============================================================
 
-def get_messages(
-    conversation_id
-):
+def get_messages(conversation_id):
 
     supabase = get_supabase()
 
@@ -280,19 +198,8 @@ def get_messages(
         .execute()
     )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    return getattr(result, "data", []) or []
 
-
-# ============================================================
-# MESAJ EKLE
-# ============================================================
 
 def add_message(
     conversation_id,
@@ -305,20 +212,11 @@ def add_message(
     supabase = get_supabase()
 
     data = {
-        "conversation_id":
-            conversation_id,
-
-        "role":
-            role,
-
-        "content":
-            content,
-
-        "image_url":
-            image_url,
-
-        "provider":
-            provider,
+        "conversation_id": conversation_id,
+        "role": role,
+        "content": content,
+        "image_url": image_url,
+        "provider": provider,
     }
 
     result = (
@@ -328,21 +226,14 @@ def add_message(
         .execute()
     )
 
-    # --------------------------------------------------------
-    # SOHBETİN GÜNCELLEME ZAMANINI DEĞİŞTİR
-    # --------------------------------------------------------
-
     (
         supabase
         .table("conversations")
-        .update(
-            {
-                "updated_at":
-                    datetime.now(
-                        timezone.utc
-                    ).isoformat()
-            }
-        )
+        .update({
+            "updated_at": datetime.now(
+                timezone.utc
+            ).isoformat()
+        })
         .eq(
             "id",
             conversation_id
@@ -350,30 +241,21 @@ def add_message(
         .execute()
     )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    return getattr(result, "data", []) or []
 
 
 # ============================================================
-# STORAGE - GÖRSEL YÜKLE
+# STORAGE
 # ============================================================
 
-def upload_image(
+def upload_file(
     file_bytes,
     file_name,
+    content_type,
     bucket_name="chat_images"
 ):
 
     supabase = get_supabase()
-
-    if not file_bytes:
-        return None
 
     try:
 
@@ -383,78 +265,68 @@ def upload_image(
             file_name,
             file_bytes,
             {
-                "content-type":
-                    "image/jpeg",
-
-                "upsert":
-                    "true"
+                "content-type": content_type,
+                "upsert": "true"
             }
         )
 
-        public_url = (
+        return (
             supabase
             .storage
             .from_(bucket_name)
-            .get_public_url(
-                file_name
-            )
+            .get_public_url(file_name)
         )
-
-        return public_url
 
     except Exception as e:
 
         print(
-            "IMAGE UPLOAD ERROR:",
+            "STORAGE ERROR:",
             repr(e)
         )
 
         return None
 
 
+def upload_image(
+    file_bytes,
+    file_name,
+    bucket_name="chat_images"
+):
+
+    return upload_file(
+        file_bytes,
+        file_name,
+        "image/jpeg",
+        bucket_name
+    )
+
+
 # ============================================================
-# GARDIROP - KIYAFET EKLE
+# GARDIROP
 # ============================================================
 
 def add_clothing_item(
+    client_id,
     image_url,
-    category,
-    color,
-    description,
+    category=None,
     name=None,
+    color=None,
     style=None,
-    season=None
+    season=None,
+    description=None
 ):
 
     supabase = get_supabase()
 
-    client_id = get_client_id()
-
     data = {
-
-        "client_id":
-            str(client_id),
-
-        "image_url":
-            image_url,
-
-        "category":
-            category,
-
-        "name":
-            name,
-
-        "color":
-            color,
-
-        "style":
-            style,
-
-        "season":
-            season,
-
-        "description":
-            description,
+        "client_id": str(client_id),
+        "image_url": image_url,
+        "category": category,
+        "name": name,
+        "color": color,
+        "style": style,
+        "season": season,
+        "description": description,
     }
 
     result = (
@@ -464,25 +336,15 @@ def add_clothing_item(
         .execute()
     )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    return getattr(result, "data", []) or []
 
 
-# ============================================================
-# GARDIROP - TÜM KIYAFETLER
-# ============================================================
-
-def get_all_clothes():
+def get_all_clothes(client_id=None):
 
     supabase = get_supabase()
 
-    client_id = get_client_id()
+    if client_id is None:
+        client_id = get_client_id()
 
     result = (
         supabase
@@ -499,70 +361,18 @@ def get_all_clothes():
         .execute()
     )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    return getattr(result, "data", []) or []
 
-
-# ============================================================
-# GARDIROP - TEK KIYAFET
-# ============================================================
-
-def get_clothing_item(
-    clothing_id
-):
-
-    supabase = get_supabase()
-
-    client_id = get_client_id()
-
-    result = (
-        supabase
-        .table("clothes")
-        .select("*")
-        .eq(
-            "id",
-            clothing_id
-        )
-        .eq(
-            "client_id",
-            str(client_id)
-        )
-        .limit(1)
-        .execute()
-    )
-
-    rows = (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
-
-    if rows:
-        return rows[0]
-
-    return None
-
-
-# ============================================================
-# GARDIROP - KIYAFET SİL
-# ============================================================
 
 def delete_clothing_item(
-    clothing_id
+    clothing_id,
+    client_id=None
 ):
 
     supabase = get_supabase()
 
-    client_id = get_client_id()
+    if client_id is None:
+        client_id = get_client_id()
 
     (
         supabase
@@ -580,69 +390,3 @@ def delete_clothing_item(
     )
 
     return True
-
-
-# ============================================================
-# GARDIROP - KIYAFET GÜNCELLE
-# ============================================================
-
-def update_clothing_item(
-    clothing_id,
-    name=None,
-    category=None,
-    color=None,
-    style=None,
-    season=None,
-    description=None
-):
-
-    supabase = get_supabase()
-
-    client_id = get_client_id()
-
-    data = {}
-
-    if name is not None:
-        data["name"] = name
-
-    if category is not None:
-        data["category"] = category
-
-    if color is not None:
-        data["color"] = color
-
-    if style is not None:
-        data["style"] = style
-
-    if season is not None:
-        data["season"] = season
-
-    if description is not None:
-        data["description"] = description
-
-    if not data:
-        return []
-
-    result = (
-        supabase
-        .table("clothes")
-        .update(data)
-        .eq(
-            "id",
-            clothing_id
-        )
-        .eq(
-            "client_id",
-            str(client_id)
-        )
-        .execute()
-    )
-
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
