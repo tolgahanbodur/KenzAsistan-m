@@ -1,58 +1,68 @@
-import streamlit as st
 import io
 import uuid
 
+import streamlit as st
 from PIL import Image
 
 from ai_router import ask_ai
-
 from supabase_client import (
     get_conversations,
     create_conversation,
     get_messages,
     add_message,
     delete_conversation,
-    update_conversation_title
+    update_conversation_title,
+    upload_image,
 )
 
 
 # ============================================================
-# SAYFA
+# SAYFA AYARLARI
 # ============================================================
 
 st.set_page_config(
     page_title="Kenz Asistan",
     page_icon="🤖",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
 # ============================================================
-# SESSION
+# CLIENT ID
+# ============================================================
+
+if "client_id" not in st.query_params:
+
+    st.query_params["client_id"] = str(
+        uuid.uuid4()
+    )
+
+client_id = st.query_params["client_id"]
+
+
+# ============================================================
+# SESSION STATE
 # ============================================================
 
 if "conversation_id" not in st.session_state:
-
     st.session_state.conversation_id = None
 
-
 if "messages" not in st.session_state:
-
     st.session_state.messages = []
 
-
 if "last_provider" not in st.session_state:
-
     st.session_state.last_provider = None
 
+if "initialized" not in st.session_state:
+    st.session_state.initialized = False
+
 
 # ============================================================
-# SOHBETİ YÜKLE
+# SOHBET YÜKLE
 # ============================================================
 
-def load_conversation(
-    conversation_id
-):
+def load_conversation(conversation_id):
 
     messages = get_messages(
         conversation_id
@@ -62,62 +72,72 @@ def load_conversation(
 
     for message in messages:
 
-        converted.append({
+        converted.append(
+            {
+                "role": message.get(
+                    "role",
+                    "assistant"
+                ),
 
-            "role":
-                message["role"],
-
-            "content":
-                message.get(
+                "content": message.get(
                     "content",
                     ""
                 ),
 
-            "image_url":
-                message.get(
+                "image_url": message.get(
                     "image_url"
                 ),
 
-            "provider":
-                message.get(
+                "provider": message.get(
                     "provider"
-                )
-
-        })
-
-    st.session_state.messages = converted
+                ),
+            }
+        )
 
     st.session_state.conversation_id = (
         conversation_id
     )
+
+    st.session_state.messages = converted
 
 
 # ============================================================
 # YENİ SOHBET
 # ============================================================
 
-def new_conversation():
+def start_new_conversation():
 
     conversation = create_conversation(
-        "Yeni sohbet"
+        client_id=client_id,
+        title="Yeni sohbet"
     )
 
     if conversation:
 
+        conversation_id = conversation.get(
+            "id"
+        )
+
         st.session_state.conversation_id = (
-            conversation["id"]
+            conversation_id
         )
 
         st.session_state.messages = []
+
+        return True
+
+    return False
 
 
 # ============================================================
 # İLK AÇILIŞ
 # ============================================================
 
-if st.session_state.conversation_id is None:
+if not st.session_state.initialized:
 
-    conversations = get_conversations()
+    conversations = get_conversations(
+        client_id
+    )
 
     if conversations:
 
@@ -127,7 +147,9 @@ if st.session_state.conversation_id is None:
 
     else:
 
-        new_conversation()
+        start_new_conversation()
+
+    st.session_state.initialized = True
 
 
 # ============================================================
@@ -149,48 +171,50 @@ with st.sidebar:
         use_container_width=True
     ):
 
-        new_conversation()
+        if start_new_conversation():
 
-        st.rerun()
+            st.rerun()
 
 
-    st.subheader(
-        "💬 Sohbetler"
+    st.subheader("💬 Sohbetler")
+
+    conversations = get_conversations(
+        client_id
     )
-
-
-    conversations = get_conversations()
 
 
     for conversation in conversations:
 
-        conversation_id = (
-            conversation["id"]
+        conversation_id = conversation.get(
+            "id"
         )
 
-        title = (
-            conversation.get(
-                "title"
-            )
-            or "Yeni sohbet"
-        )
+        title = conversation.get(
+            "title"
+        ) or "Yeni sohbet"
 
-        is_active = (
+        if len(title) > 35:
+
+            title = title[:35] + "..."
+
+
+        active = (
             conversation_id
             ==
             st.session_state.conversation_id
         )
 
 
+        button_text = (
+            "🟢 "
+            if active
+            else "💬 "
+        ) + title
+
+
         if st.button(
-            (
-                "🟢 "
-                if is_active
-                else "💬 "
-            )
-            + title,
-            key=
-                f"conversation_{conversation_id}",
+            button_text,
+            key=f"chat_{conversation_id}",
             use_container_width=True
         ):
 
@@ -207,7 +231,7 @@ with st.sidebar:
     if st.session_state.last_provider:
 
         st.caption(
-            "Son kullanılan model"
+            "Son kullanılan AI"
         )
 
         st.info(
@@ -223,26 +247,29 @@ with st.sidebar:
         use_container_width=True
     ):
 
-        if st.session_state.conversation_id:
+        conversation_id = (
+            st.session_state.conversation_id
+        )
+
+        if conversation_id:
 
             delete_conversation(
-                st.session_state.conversation_id
+                conversation_id,
+                client_id
             )
 
             st.session_state.conversation_id = None
-
             st.session_state.messages = []
+            st.session_state.initialized = False
 
             st.rerun()
 
 
 # ============================================================
-# BAŞLIK
+# ANA BAŞLIK
 # ============================================================
 
-st.title(
-    "🤖 Kenz Asistan"
-)
+st.title("🤖 Kenz Asistan")
 
 st.caption(
     "Sohbet et • Görsel gönder • Analiz ettir"
@@ -250,7 +277,36 @@ st.caption(
 
 
 # ============================================================
-# MESAJLAR
+# HOŞ GELDİN MESAJI
+# ============================================================
+
+if not st.session_state.messages:
+
+    with st.chat_message("assistant"):
+
+        st.markdown(
+            """
+### Merhaba 👋
+
+Ben **Kenz**.
+
+Benimle normal şekilde sohbet edebilirsin.
+
+Ayrıca 📎 butonundan fotoğraf göndererek:
+
+- 👕 Kombinini değerlendirebilir
+- 🎨 Renk uyumunu inceleyebilir
+- 💇 Saç/stil analizi yapabilir
+- 📸 Fotoğrafları analiz edebilir
+- 🖼️ Ekran görüntülerini inceleyebilirim.
+
+Nasıl yardımcı olabilirim?
+"""
+        )
+
+
+# ============================================================
+# GEÇMİŞ MESAJLAR
 # ============================================================
 
 for message in st.session_state.messages:
@@ -260,9 +316,7 @@ for message in st.session_state.messages:
         "assistant"
     )
 
-    with st.chat_message(
-        role
-    ):
+    with st.chat_message(role):
 
         image_url = message.get(
             "image_url"
@@ -299,25 +353,20 @@ for message in st.session_state.messages:
 # ============================================================
 
 prompt = st.chat_input(
-
     "Kenz'e bir şey sor...",
-
     accept_file=True,
-
     file_type=[
         "jpg",
         "jpeg",
         "png",
         "webp"
     ],
-
-    max_upload_size=20
-
+    max_upload_size=20,
 )
 
 
 # ============================================================
-# YENİ MESAJ
+# MESAJ GELDİ
 # ============================================================
 
 if prompt:
@@ -326,10 +375,7 @@ if prompt:
 
     try:
 
-        user_text = (
-            prompt.text
-            .strip()
-        )
+        user_text = prompt.text.strip()
 
     except Exception:
 
@@ -352,8 +398,7 @@ if prompt:
     except Exception as e:
 
         st.error(
-            "Görsel okunamadı: "
-            + str(e)
+            f"Görsel okunamadı: {e}"
         )
 
         st.stop()
@@ -367,18 +412,19 @@ if prompt:
 
         try:
 
-            image = Image.open(
+            test_image = Image.open(
                 io.BytesIO(
                     image_bytes
                 )
             )
 
-            image.verify()
+            test_image.verify()
 
         except Exception:
 
             st.error(
-                "Geçerli bir görsel yükle."
+                "Yüklediğin dosya geçerli bir "
+                "görsel değil."
             )
 
             st.stop()
@@ -388,20 +434,17 @@ if prompt:
     # BOŞ MESAJ
     # --------------------------------------------------------
 
-    if (
-        not user_text
-        and not image_bytes
-    ):
+    if not user_text and not image_bytes:
 
         st.warning(
-            "Mesaj yaz veya görsel gönder."
+            "Bir mesaj yaz veya görsel gönder."
         )
 
         st.stop()
 
 
     # ========================================================
-    # GÖRSELİ SUPABASE'E YÜKLE
+    # GÖRSELİ STORAGE'A YÜKLE
     # ========================================================
 
     image_url = None
@@ -409,38 +452,31 @@ if prompt:
 
     if image_bytes:
 
-        from supabase_client import upload_image
-
         file_name = (
             "chat/"
-            + str(
-                uuid.uuid4()
-            )
+            + str(uuid.uuid4())
             + ".jpg"
         )
 
-
         image_url = upload_image(
             image_bytes,
-            file_name
+            file_name,
+            bucket_name="chat_images"
         )
 
 
     # ========================================================
-    # KULLANICI MESAJINI KAYDET
+    # KULLANICI MESAJINI SUPABASE'E KAYDET
     # ========================================================
 
     add_message(
-
-        conversation_id=
-            st.session_state.conversation_id,
-
+        conversation_id=(
+            st.session_state.conversation_id
+        ),
         role="user",
-
         content=user_text,
-
-        image_url=image_url
-
+        image_url=image_url,
+        provider=None,
     )
 
 
@@ -448,14 +484,13 @@ if prompt:
     # EKRANDA GÖSTER
     # ========================================================
 
-    with st.chat_message(
-        "user"
-    ):
+    with st.chat_message("user"):
 
         if image_bytes:
 
             st.image(
                 image_bytes,
+                caption="Gönderilen görsel",
                 use_container_width=True
             )
 
@@ -467,7 +502,7 @@ if prompt:
 
 
     # ========================================================
-    # GEÇMİŞİ AI'A HAZIRLA
+    # AI GEÇMİŞİ
     # ========================================================
 
     history = []
@@ -475,55 +510,58 @@ if prompt:
 
     for message in st.session_state.messages:
 
-        history.append({
+        text = message.get(
+            "content",
+            ""
+        )
 
-            "role":
-                message.get(
+        if not text:
+            continue
+
+        history.append(
+            {
+                "role": message.get(
                     "role"
                 ),
-
-            "text":
-                message.get(
-                    "content",
-                    ""
-                )
-
-        })
+                "text": text,
+            }
+        )
 
 
     # ========================================================
-    # PROMPT
+    # SYSTEM PROMPT
     # ========================================================
 
     system_prompt = """
-
 Sen Kenz adında kişisel bir yapay zeka asistanısın.
 
 Kullanıcıyla Türkçe konuş.
 
 Samimi, doğal, akıllı ve yardımcı ol.
 
-Normal sohbet sorularını cevapla.
+Kullanıcı seninle normal şekilde sohbet edebilir.
 
-Kullanıcı görsel gönderirse gerçekten analiz et.
+Kullanıcı görsel gönderirse görseli gerçekten analiz et.
 
-Özellikle kıyafet, kombin, renk uyumu, stil,
-gardırop, ürün, mekan, nesne ve ekran görüntülerini
-analiz edebilirsin.
+Görselde kıyafet, kombin, saç, ürün, nesne,
+mekan veya başka bir şey varsa analiz edebilirsin.
 
-Kullanıcı kombin sorarsa:
+Özellikle kombin sorularında:
 
-- parçaları belirle
+- kıyafetleri belirle
 - renkleri değerlendir
-- uyumu değerlendir
+- parçaların uyumunu değerlendir
 - eksikleri söyle
 - alternatif öner
 - istenirse 10 üzerinden puan ver
 
-Görmediğin bir görsel hakkında görmüş gibi konuşma.
+Görseli görmediğin halde görmüş gibi davranma.
 
-Kısa sorulara gereksiz uzun cevap verme.
+Cevaplarını doğal ve anlaşılır tut.
 
+Kullanıcı kısa cevap istiyorsa kısa cevap ver.
+
+Gereksiz yere uzun cevap verme.
 """
 
 
@@ -533,51 +571,49 @@ Kısa sorulara gereksiz uzun cevap verme.
     if history:
 
         history_text = (
-            "\n\nÖNCEKİ SOHBET:\n"
+            "\n\nÖNCEKİ KONUŞMA:\n"
         )
-
 
         for item in history:
 
-            if item["text"]:
+            if item["role"] == "user":
 
-                if item["role"] == "user":
+                history_text += (
+                    "Kullanıcı: "
+                    + item["text"]
+                    + "\n"
+                )
 
-                    history_text += (
-                        "Kullanıcı: "
-                        + item["text"]
-                        + "\n"
-                    )
+            elif item["role"] == "assistant":
 
-                else:
+                history_text += (
+                    "Kenz: "
+                    + item["text"]
+                    + "\n"
+                )
 
-                    history_text += (
-                        "Kenz: "
-                        + item["text"]
-                        + "\n"
-                    )
 
+    # ========================================================
+    # AI PROMPT
+    # ========================================================
 
     full_prompt = (
-
         system_prompt
-
         + history_text
-
         + "\n\nYENİ KULLANICI MESAJI:\n"
-
-        + user_text
-
+        + (
+            user_text
+            if user_text
+            else "Kullanıcı bir görsel gönderdi."
+        )
     )
 
 
     # ========================================================
-    # AI
+    # AI CEVABI
     # ========================================================
 
-    with st.chat_message(
-        "assistant"
-    ):
+    with st.chat_message("assistant"):
 
         with st.spinner(
             "Kenz düşünüyor..."
@@ -586,17 +622,11 @@ Kısa sorulara gereksiz uzun cevap verme.
             try:
 
                 answer = ask_ai(
-
-                    prompt=
-                        full_prompt,
-
-                    image=
-                        image_bytes
-
+                    prompt=full_prompt,
+                    image=image_bytes,
                 )
 
 
-                # Router provider bilgisini session'a yazdıysa
                 provider = (
                     st.session_state.get(
                         "last_provider"
@@ -609,66 +639,51 @@ Kısa sorulara gereksiz uzun cevap verme.
                 )
 
 
-                # ====================================================
-                # AI CEVABINI SUPABASE'E KAYDET
-                # ====================================================
+                # ------------------------------------------------
+                # AI MESAJINI SUPABASE'E KAYDET
+                # ------------------------------------------------
 
                 add_message(
-
-                    conversation_id=
-                        st.session_state.conversation_id,
-
+                    conversation_id=(
+                        st.session_state.conversation_id
+                    ),
                     role="assistant",
-
-                    content=
-                        answer,
-
-                    provider=
-                        provider
-
+                    content=answer,
+                    image_url=None,
+                    provider=provider,
                 )
 
 
-                # ====================================================
-                # SESSION'A EKLE
-                # ====================================================
+                # ------------------------------------------------
+                # SESSION
+                # ------------------------------------------------
 
-                st.session_state.messages.append({
-
-                    "role":
-                        "user",
-
-                    "content":
-                        user_text,
-
-                    "image_url":
-                        image_url
-
-                })
+                st.session_state.messages.append(
+                    {
+                        "role": "user",
+                        "content": user_text,
+                        "image_url": image_url,
+                    }
+                )
 
 
-                st.session_state.messages.append({
-
-                    "role":
-                        "assistant",
-
-                    "content":
-                        answer,
-
-                    "image_url":
-                        None,
-
-                    "provider":
-                        provider
-
-                })
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": answer,
+                        "image_url": None,
+                        "provider": provider,
+                    }
+                )
 
 
-                # ====================================================
-                # BAŞLIK OLUŞTUR
-                # ====================================================
+                # ------------------------------------------------
+                # SOHBET BAŞLIĞI
+                # ------------------------------------------------
 
-                conversations = get_conversations()
+                conversations = get_conversations(
+                    client_id
+                )
 
 
                 current = None
@@ -677,13 +692,12 @@ Kısa sorulara gereksiz uzun cevap verme.
                 for conversation in conversations:
 
                     if (
-                        conversation["id"]
+                        conversation.get("id")
                         ==
                         st.session_state.conversation_id
                     ):
 
                         current = conversation
-
                         break
 
 
@@ -704,14 +718,14 @@ Kısa sorulara gereksiz uzun cevap verme.
                         and user_text
                     ):
 
-                        title = user_text[:40]
+                        new_title = (
+                            user_text[:45]
+                        )
 
                         update_conversation_title(
-
                             st.session_state.conversation_id,
-
-                            title
-
+                            client_id,
+                            new_title,
                         )
 
 
@@ -731,7 +745,7 @@ Kısa sorulara gereksiz uzun cevap verme.
 
 
 # ============================================================
-# ALT
+# ALT BİLGİ
 # ============================================================
 
 st.divider()
