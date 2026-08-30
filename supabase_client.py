@@ -45,26 +45,6 @@ def get_supabase() -> Client:
 
 def get_client_id():
 
-    # Öncelik: Streamlit Secret
-    client_id = st.secrets.get(
-        "KENZ_CLIENT_ID",
-        ""
-    )
-
-    if client_id:
-        return str(client_id)
-
-    # Environment variable
-    client_id = os.environ.get(
-        "KENZ_CLIENT_ID",
-        ""
-    )
-
-    if client_id:
-        return str(client_id)
-
-    # Secret yoksa session ID kullan
-    # Bu sadece yedek yöntemdir.
     if "client_id" not in st.session_state:
 
         st.session_state.client_id = str(
@@ -113,7 +93,7 @@ def create_conversation(
 
 
 # ============================================================
-# GET CONVERSATIONS
+# TÜM SOHBETLER
 # ============================================================
 
 def get_conversations(
@@ -153,7 +133,7 @@ def get_conversations(
 
 
 # ============================================================
-# GET SINGLE CONVERSATION
+# TEK SOHBET
 # ============================================================
 
 def get_conversation(
@@ -198,7 +178,7 @@ def get_conversation(
 
 
 # ============================================================
-# UPDATE CONVERSATION TITLE
+# SOHBET BAŞLIĞI GÜNCELLE
 # ============================================================
 
 def update_conversation_title(
@@ -244,7 +224,7 @@ def update_conversation_title(
 
 
 # ============================================================
-# DELETE CONVERSATION
+# SOHBET SİL
 # ============================================================
 
 def delete_conversation(
@@ -311,7 +291,7 @@ def get_messages(
 
 
 # ============================================================
-# ADD MESSAGE
+# MESAJ EKLE
 # ============================================================
 
 def add_message(
@@ -348,7 +328,10 @@ def add_message(
         .execute()
     )
 
-    # Sohbetin güncellenme zamanını değiştir
+    # --------------------------------------------------------
+    # SOHBETİN GÜNCELLEME ZAMANINI DEĞİŞTİR
+    # --------------------------------------------------------
+
     (
         supabase
         .table("conversations")
@@ -378,7 +361,7 @@ def add_message(
 
 
 # ============================================================
-# STORAGE - IMAGE UPLOAD
+# STORAGE - GÖRSEL YÜKLE
 # ============================================================
 
 def upload_image(
@@ -389,15 +372,10 @@ def upload_image(
 
     supabase = get_supabase()
 
+    if not file_bytes:
+        return None
+
     try:
-
-        mime_type = "image/jpeg"
-
-        if file_name.lower().endswith(".png"):
-            mime_type = "image/png"
-
-        elif file_name.lower().endswith(".webp"):
-            mime_type = "image/webp"
 
         supabase.storage.from_(
             bucket_name
@@ -406,7 +384,7 @@ def upload_image(
             file_bytes,
             {
                 "content-type":
-                    mime_type,
+                    "image/jpeg",
 
                 "upsert":
                     "true"
@@ -435,14 +413,17 @@ def upload_image(
 
 
 # ============================================================
-# GARDIROP - ADD
+# GARDIROP - KIYAFET EKLE
 # ============================================================
 
 def add_clothing_item(
     image_url,
     category,
     color,
-    description
+    description,
+    name=None,
+    style=None,
+    season=None
 ):
 
     supabase = get_supabase()
@@ -450,6 +431,7 @@ def add_clothing_item(
     client_id = get_client_id()
 
     data = {
+
         "client_id":
             str(client_id),
 
@@ -459,8 +441,17 @@ def add_clothing_item(
         "category":
             category,
 
+        "name":
+            name,
+
         "color":
             color,
+
+        "style":
+            style,
+
+        "season":
+            season,
 
         "description":
             description,
@@ -484,7 +475,7 @@ def add_clothing_item(
 
 
 # ============================================================
-# GARDIROP - GET
+# GARDIROP - TÜM KIYAFETLER
 # ============================================================
 
 def get_all_clothes():
@@ -519,7 +510,50 @@ def get_all_clothes():
 
 
 # ============================================================
-# GARDIROP - DELETE
+# GARDIROP - TEK KIYAFET
+# ============================================================
+
+def get_clothing_item(
+    clothing_id
+):
+
+    supabase = get_supabase()
+
+    client_id = get_client_id()
+
+    result = (
+        supabase
+        .table("clothes")
+        .select("*")
+        .eq(
+            "id",
+            clothing_id
+        )
+        .eq(
+            "client_id",
+            str(client_id)
+        )
+        .limit(1)
+        .execute()
+    )
+
+    rows = (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
+
+    if rows:
+        return rows[0]
+
+    return None
+
+
+# ============================================================
+# GARDIROP - KIYAFET SİL
 # ============================================================
 
 def delete_clothing_item(
@@ -546,3 +580,69 @@ def delete_clothing_item(
     )
 
     return True
+
+
+# ============================================================
+# GARDIROP - KIYAFET GÜNCELLE
+# ============================================================
+
+def update_clothing_item(
+    clothing_id,
+    name=None,
+    category=None,
+    color=None,
+    style=None,
+    season=None,
+    description=None
+):
+
+    supabase = get_supabase()
+
+    client_id = get_client_id()
+
+    data = {}
+
+    if name is not None:
+        data["name"] = name
+
+    if category is not None:
+        data["category"] = category
+
+    if color is not None:
+        data["color"] = color
+
+    if style is not None:
+        data["style"] = style
+
+    if season is not None:
+        data["season"] = season
+
+    if description is not None:
+        data["description"] = description
+
+    if not data:
+        return []
+
+    result = (
+        supabase
+        .table("clothes")
+        .update(data)
+        .eq(
+            "id",
+            clothing_id
+        )
+        .eq(
+            "client_id",
+            str(client_id)
+        )
+        .execute()
+    )
+
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
