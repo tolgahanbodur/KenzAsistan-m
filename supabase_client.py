@@ -1,4 +1,5 @@
 import os
+import uuid
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -14,18 +15,12 @@ def get_supabase() -> Client:
 
     url = st.secrets.get(
         "SUPABASE_URL",
-        os.environ.get(
-            "SUPABASE_URL",
-            ""
-        )
+        os.environ.get("SUPABASE_URL", "")
     )
 
     key = st.secrets.get(
         "SUPABASE_KEY",
-        os.environ.get(
-            "SUPABASE_KEY",
-            ""
-        )
+        os.environ.get("SUPABASE_KEY", "")
     )
 
     if not url:
@@ -45,7 +40,7 @@ def get_supabase() -> Client:
 
 
 # ============================================================
-# AUTH
+# AUTH - CURRENT USER
 # ============================================================
 
 def get_current_user():
@@ -54,41 +49,48 @@ def get_current_user():
 
     try:
 
-        response = supabase.auth.get_user()
+        response = (
+            supabase
+            .auth
+            .get_user()
+        )
 
-        if response and response.user:
-
-            return response.user
+        return getattr(
+            response,
+            "user",
+            None
+        )
 
     except Exception:
 
-        pass
-
-    return None
-
-
-def get_user_id():
-
-    user = get_current_user()
-
-    if not user:
         return None
-
-    return str(
-        user.id
-    )
-
-
-def is_authenticated():
-
-    return (
-        get_current_user()
-        is not None
-    )
 
 
 # ============================================================
-# SIGN UP
+# AUTH - SESSION
+# ============================================================
+
+def get_session():
+
+    supabase = get_supabase()
+
+    try:
+
+        response = (
+            supabase
+            .auth
+            .get_session()
+        )
+
+        return response
+
+    except Exception:
+
+        return None
+
+
+# ============================================================
+# AUTH - SIGN UP
 # ============================================================
 
 def sign_up(
@@ -99,27 +101,35 @@ def sign_up(
 
     supabase = get_supabase()
 
-    result = (
-        supabase
-        .auth
-        .sign_up(
-            {
-                "email": email,
-                "password": password,
-                "options": {
-                    "data": {
-                        "name": name
+    try:
+
+        response = (
+            supabase
+            .auth
+            .sign_up(
+                {
+                    "email": email,
+                    "password": password,
+                    "options": {
+                        "data": {
+                            "name": name
+                        }
                     }
                 }
-            }
+            )
         )
-    )
 
-    return result
+        return response
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Kayıt oluşturulamadı: {e}"
+        )
 
 
 # ============================================================
-# LOGIN
+# AUTH - LOGIN
 # ============================================================
 
 def sign_in(
@@ -129,22 +139,30 @@ def sign_in(
 
     supabase = get_supabase()
 
-    result = (
-        supabase
-        .auth
-        .sign_in_with_password(
-            {
-                "email": email,
-                "password": password
-            }
-        )
-    )
+    try:
 
-    return result
+        response = (
+            supabase
+            .auth
+            .sign_in_with_password(
+                {
+                    "email": email,
+                    "password": password
+                }
+            )
+        )
+
+        return response
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Giriş başarısız: {e}"
+        )
 
 
 # ============================================================
-# LOGOUT
+# AUTH - LOGOUT
 # ============================================================
 
 def sign_out():
@@ -155,28 +173,30 @@ def sign_out():
 
         supabase.auth.sign_out()
 
-    except Exception:
+        return True
 
-        pass
+    except Exception as e:
 
-    # Session temizliği
+        raise RuntimeError(
+            f"Çıkış yapılamadı: {e}"
+        )
 
-    keys_to_remove = [
-        "conversation_id",
-        "messages",
-        "initialized",
-        "last_provider",
-        "selected_file",
-        "selected_file_name",
-        "selected_file_type",
-        "show_wardrobe",
-    ]
 
-    for key in keys_to_remove:
+# ============================================================
+# USER ID
+# ============================================================
 
-        if key in st.session_state:
+def get_user_id():
 
-            del st.session_state[key]
+    user = get_current_user()
+
+    if not user:
+
+        return None
+
+    return str(
+        user.id
+    )
 
 
 # ============================================================
@@ -192,33 +212,43 @@ def get_profile():
     if not user_id:
         return None
 
-    result = (
-        supabase
-        .table("profiles")
-        .select("*")
-        .eq(
-            "id",
-            user_id
+    try:
+
+        result = (
+            supabase
+            .table("profiles")
+            .select("*")
+            .eq(
+                "id",
+                user_id
+            )
+            .limit(1)
+            .execute()
         )
-        .limit(1)
-        .execute()
-    )
 
-    rows = (
-        getattr(
-            result,
-            "data",
-            []
+        rows = (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
         )
-        or []
-    )
 
-    return (
-        rows[0]
-        if rows
-        else None
-    )
+        return (
+            rows[0]
+            if rows
+            else None
+        )
 
+    except Exception:
+
+        return None
+
+
+# ============================================================
+# UPDATE PROFILE
+# ============================================================
 
 def update_profile(
     name=None,
@@ -230,14 +260,12 @@ def update_profile(
     user_id = get_user_id()
 
     if not user_id:
-        return []
 
-    data = {
-        "updated_at":
-            datetime.now(
-                timezone.utc
-            ).isoformat()
-    }
+        raise RuntimeError(
+            "Kullanıcı giriş yapmamış."
+        )
+
+    data = {}
 
     if name is not None:
 
@@ -246,6 +274,12 @@ def update_profile(
     if avatar_url is not None:
 
         data["avatar_url"] = avatar_url
+
+    data["updated_at"] = (
+        datetime.now(
+            timezone.utc
+        ).isoformat()
+    )
 
     result = (
         supabase
@@ -283,7 +317,7 @@ def create_conversation(
     if not user_id:
 
         raise RuntimeError(
-            "Önce giriş yapmalısınız."
+            "Kullanıcı giriş yapmamış."
         )
 
     result = (
@@ -291,11 +325,8 @@ def create_conversation(
         .table("conversations")
         .insert(
             {
-                "user_id":
-                    user_id,
-
-                "title":
-                    title
+                "user_id": user_id,
+                "title": title
             }
         )
         .execute()
@@ -317,6 +348,10 @@ def create_conversation(
     )
 
 
+# ============================================================
+# GET CONVERSATIONS
+# ============================================================
+
 def get_conversations():
 
     supabase = get_supabase()
@@ -330,13 +365,7 @@ def get_conversations():
         supabase
         .table("conversations")
         .select(
-            """
-            id,
-            user_id,
-            title,
-            created_at,
-            updated_at
-            """
+            "id,user_id,title,created_at,updated_at"
         )
         .eq(
             "user_id",
@@ -358,6 +387,10 @@ def get_conversations():
         or []
     )
 
+
+# ============================================================
+# GET SINGLE CONVERSATION
+# ============================================================
 
 def get_conversation(
     conversation_id
@@ -402,6 +435,10 @@ def get_conversation(
     )
 
 
+# ============================================================
+# UPDATE CONVERSATION TITLE
+# ============================================================
+
 def update_conversation_title(
     conversation_id,
     title
@@ -419,9 +456,7 @@ def update_conversation_title(
         .table("conversations")
         .update(
             {
-                "title":
-                    title,
-
+                "title": title,
                 "updated_at":
                     datetime.now(
                         timezone.utc
@@ -448,6 +483,10 @@ def update_conversation_title(
         or []
     )
 
+
+# ============================================================
+# DELETE CONVERSATION
+# ============================================================
 
 def delete_conversation(
     conversation_id
@@ -522,6 +561,10 @@ def get_messages(
     )
 
 
+# ============================================================
+# ADD MESSAGE
+# ============================================================
+
 def add_message(
     conversation_id,
     role,
@@ -539,7 +582,7 @@ def add_message(
     if not user_id:
 
         raise RuntimeError(
-            "Önce giriş yapmalısınız."
+            "Kullanıcı giriş yapmamış."
         )
 
     data = {
@@ -576,6 +619,7 @@ def add_message(
         .execute()
     )
 
+    # Sohbet güncelleme zamanı
     (
         supabase
         .table("conversations")
@@ -609,7 +653,7 @@ def add_message(
 
 
 # ============================================================
-# STORAGE
+# STORAGE - GENERIC FILE
 # ============================================================
 
 def upload_file(
@@ -626,42 +670,58 @@ def upload_file(
     if not user_id:
 
         raise RuntimeError(
-            "Önce giriş yapmalısınız."
+            "Kullanıcı giriş yapmamış."
         )
 
-    # Her kullanıcının kendi klasörü
-
+    # Kullanıcı klasörü
     storage_path = (
         str(user_id)
         + "/"
         + file_name
     )
 
-    supabase.storage.from_(
-        bucket_name
-    ).upload(
-        storage_path,
-        file_bytes,
-        {
-            "content-type":
-                content_type,
+    try:
 
-            "upsert":
-                True
-        }
-    )
-
-    return (
-        supabase
-        .storage
-        .from_(
+        supabase.storage.from_(
             bucket_name
-        )
-        .get_public_url(
-            storage_path
-        )
-    )
+        ).upload(
+            storage_path,
+            file_bytes,
+            {
+                "content-type":
+                    content_type,
 
+                "upsert":
+                    "true"
+            }
+        )
+
+        public_url = (
+            supabase
+            .storage
+            .from_(
+                bucket_name
+            )
+            .get_public_url(
+                storage_path
+            )
+        )
+
+        return public_url
+
+    except Exception as e:
+
+        print(
+            "STORAGE ERROR:",
+            repr(e)
+        )
+
+        return None
+
+
+# ============================================================
+# IMAGE UPLOAD
+# ============================================================
 
 def upload_image(
     file_bytes,
@@ -678,7 +738,7 @@ def upload_image(
 
 
 # ============================================================
-# WARDROBE
+# GARDIROP
 # ============================================================
 
 def add_clothing_item(
@@ -698,7 +758,7 @@ def add_clothing_item(
     if not user_id:
 
         raise RuntimeError(
-            "Önce giriş yapmalısınız."
+            "Kullanıcı giriş yapmamış."
         )
 
     data = {
@@ -745,6 +805,10 @@ def add_clothing_item(
     )
 
 
+# ============================================================
+# GET WARDROBE
+# ============================================================
+
 def get_all_clothes():
 
     supabase = get_supabase()
@@ -779,6 +843,10 @@ def get_all_clothes():
     )
 
 
+# ============================================================
+# DELETE CLOTHING
+# ============================================================
+
 def delete_clothing_item(
     clothing_id
 ):
@@ -812,7 +880,7 @@ def delete_clothing_item(
 # USER PREFERENCES
 # ============================================================
 
-def get_user_preferences():
+def get_preferences():
 
     supabase = get_supabase()
 
@@ -849,7 +917,11 @@ def get_user_preferences():
     )
 
 
-def save_user_preferences(
+# ============================================================
+# SAVE PREFERENCES
+# ============================================================
+
+def save_preferences(
     preferences
 ):
 
@@ -860,10 +932,10 @@ def save_user_preferences(
     if not user_id:
 
         raise RuntimeError(
-            "Önce giriş yapmalısınız."
+            "Kullanıcı giriş yapmamış."
         )
 
-    existing = get_user_preferences()
+    existing = get_preferences()
 
     data = {
 
@@ -911,9 +983,7 @@ def save_user_preferences(
             .table(
                 "user_preferences"
             )
-            .insert(
-                data
-            )
+            .insert(data)
             .execute()
         )
 
