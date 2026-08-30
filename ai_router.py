@@ -14,20 +14,21 @@ from openai import OpenAI
 # API KEYS
 # ============================================================
 
-GEMINI_API_KEY = st.secrets.get(
-    "GEMINI_API_KEY",
-    os.environ.get("GEMINI_API_KEY", "")
-)
+def get_secret(name):
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
 
-OPENAI_API_KEY = st.secrets.get(
-    "OPENAI_API_KEY",
-    os.environ.get("OPENAI_API_KEY", "")
-)
+    if not value:
+        value = os.environ.get(name, "")
 
-OPENROUTER_API_KEY = st.secrets.get(
-    "OPENROUTER_API_KEY",
-    os.environ.get("OPENROUTER_API_KEY", "")
-)
+    return value
+
+
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
+OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
+OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
 
 
 # ============================================================
@@ -39,15 +40,21 @@ openai_client = None
 
 
 if GEMINI_API_KEY:
-    gemini_client = genai.Client(
-        api_key=GEMINI_API_KEY
-    )
+    try:
+        gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY
+        )
+    except Exception:
+        gemini_client = None
 
 
 if OPENAI_API_KEY:
-    openai_client = OpenAI(
-        api_key=OPENAI_API_KEY
-    )
+    try:
+        openai_client = OpenAI(
+            api_key=OPENAI_API_KEY
+        )
+    except Exception:
+        openai_client = None
 
 
 # ============================================================
@@ -63,7 +70,10 @@ def get_file_bytes(uploaded_file):
         return uploaded_file
 
     if hasattr(uploaded_file, "getvalue"):
-        return uploaded_file.getvalue()
+        try:
+            return uploaded_file.getvalue()
+        except Exception:
+            return None
 
     return None
 
@@ -103,32 +113,26 @@ def ask_gemini(
     uploaded_file=None
 ):
 
-    if not gemini_client:
-        raise Exception(
-            "GEMINI_API_KEY bulunamadı."
+    if gemini_client is None:
+
+        raise RuntimeError(
+            "GEMINI_API_KEY bulunamadı veya Gemini istemcisi oluşturulamadı."
         )
 
     file_bytes = get_file_bytes(
         uploaded_file
     )
 
-    mime_type = get_mime_type(
-        uploaded_file
-    )
-
-
-    # ========================================================
+    # --------------------------------------------------------
     # SADECE METİN
-    # ========================================================
+    # --------------------------------------------------------
 
     if not file_bytes:
 
         response = (
-            gemini_client
-            .models
-            .generate_content(
-                model="gemini-3.7-flash",
-                contents=prompt,
+            gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
             )
         )
 
@@ -139,19 +143,27 @@ def ask_gemini(
         )
 
         if not answer:
-            raise Exception(
+            raise RuntimeError(
                 "Gemini boş cevap verdi."
             )
 
         return answer
 
 
-    # ========================================================
-    # GEÇİCİ DOSYA
-    # ========================================================
+    # --------------------------------------------------------
+    # DOSYA
+    # --------------------------------------------------------
+
+    mime_type = get_mime_type(
+        uploaded_file
+    )
+
+    filename = get_filename(
+        uploaded_file
+    )
 
     extension = os.path.splitext(
-        get_filename(uploaded_file)
+        filename
     )[1]
 
     if not extension:
@@ -167,31 +179,27 @@ def ask_gemini(
             suffix=extension
         ) as temp:
 
-            temp.write(file_bytes)
+            temp.write(
+                file_bytes
+            )
 
             temp_path = temp.name
 
 
-        # ====================================================
-        # GEMINI FILES API
-        # ====================================================
-
         uploaded = (
-            gemini_client
-            .files
-            .upload(
+            gemini_client.files.upload(
                 file=temp_path
             )
         )
 
 
-        # ====================================================
-        # VİDEO İŞLENMESİNİ BEKLE
-        # ====================================================
+        # ----------------------------------------------------
+        # VIDEO PROCESSING
+        # ----------------------------------------------------
 
         if mime_type.startswith("video/"):
 
-            for _ in range(60):
+            for _ in range(90):
 
                 state = getattr(
                     uploaded,
@@ -205,46 +213,37 @@ def ask_gemini(
                     ""
                 )
 
-
                 if state_name == "ACTIVE":
                     break
 
-
                 if state_name == "FAILED":
 
-                    raise Exception(
+                    raise RuntimeError(
                         "Gemini video dosyasını işleyemedi."
                     )
 
-
                 time.sleep(2)
 
-
                 uploaded = (
-                    gemini_client
-                    .files
-                    .get(
+                    gemini_client.files.get(
                         name=uploaded.name
                     )
                 )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # MULTIMODAL
-        # ====================================================
+        # ----------------------------------------------------
 
         response = (
-            gemini_client
-            .models
-            .generate_content(
-                model="gemini-3.7-flash",
+            gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
                 contents=[
                     uploaded,
                     prompt
-                ],
+                ]
             )
         )
-
 
         answer = getattr(
             response,
@@ -252,13 +251,11 @@ def ask_gemini(
             None
         )
 
-
         if not answer:
 
-            raise Exception(
-                "Gemini boş cevap verdi."
+            raise RuntimeError(
+                "Gemini medya için boş cevap verdi."
             )
-
 
         return answer
 
@@ -284,20 +281,18 @@ def ask_openai(
     uploaded_file=None
 ):
 
-    if not openai_client:
+    if openai_client is None:
 
-        raise Exception(
-            "OPENAI_API_KEY bulunamadı."
+        raise RuntimeError(
+            "OPENAI_API_KEY bulunamadı veya OpenAI istemcisi oluşturulamadı."
         )
 
 
     content = [
-
         {
             "type": "input_text",
-            "text": prompt,
+            "text": prompt
         }
-
     ]
 
 
@@ -306,16 +301,16 @@ def ask_openai(
     )
 
 
-    # ========================================================
-    # IMAGE
-    # ========================================================
-
     if file_bytes:
 
         mime_type = get_mime_type(
             uploaded_file
         )
 
+
+        # ----------------------------------------------------
+        # IMAGE
+        # ----------------------------------------------------
 
         if mime_type.startswith("image/"):
 
@@ -325,57 +320,49 @@ def ask_openai(
                 .decode("utf-8")
             )
 
-
             content.append(
                 {
                     "type": "input_image",
-
-                    "image_url":
-                        (
-                            f"data:{mime_type};"
-                            f"base64,{encoded}"
-                        )
+                    "image_url": (
+                        f"data:{mime_type};"
+                        f"base64,{encoded}"
+                    )
                 }
             )
 
+
+        # ----------------------------------------------------
+        # OTHER FILE
+        # ----------------------------------------------------
 
         else:
 
             content.append(
                 {
                     "type": "input_text",
-
-                    "text":
-                        (
-                            "\n\n"
-                            "Eklenen dosya:\n"
-                            + get_filename(
-                                uploaded_file
-                            )
-                            + "\n\n"
-                            "Dosya türü:\n"
-                            + mime_type
-                        )
+                    "text": (
+                        "\n\n"
+                        "Kullanıcı bir medya dosyası "
+                        "yükledi.\n"
+                        f"Dosya adı: {get_filename(uploaded_file)}\n"
+                        f"Dosya türü: {mime_type}\n"
+                        "Bu dosya bu sağlayıcı tarafından "
+                        "doğrudan analiz edilemiyorsa bunu "
+                        "dürüstçe belirt."
+                    )
                 }
             )
 
 
-    # ========================================================
-    # REQUEST
-    # ========================================================
-
     response = (
-        openai_client
-        .responses
-        .create(
+        openai_client.responses.create(
             model="gpt-5-mini",
-
             input=[
                 {
                     "role": "user",
                     "content": content
                 }
-            ],
+            ]
         )
     )
 
@@ -389,7 +376,7 @@ def ask_openai(
 
     if not answer:
 
-        raise Exception(
+        raise RuntimeError(
             "OpenAI boş cevap verdi."
         )
 
@@ -408,18 +395,16 @@ def ask_openrouter(
 
     if not OPENROUTER_API_KEY:
 
-        raise Exception(
+        raise RuntimeError(
             "OPENROUTER_API_KEY bulunamadı."
         )
 
 
     content = [
-
         {
             "type": "text",
-            "text": prompt,
+            "text": prompt
         }
-
     ]
 
 
@@ -442,84 +427,78 @@ def ask_openrouter(
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # IMAGE
-        # ====================================================
+        # ----------------------------------------------------
 
         if mime_type.startswith("image/"):
 
             content.append(
                 {
                     "type": "image_url",
-
-                    "image_url":
-                        {
-                            "url":
-                                (
-                                    f"data:{mime_type};"
-                                    f"base64,{encoded}"
-                                )
-                        }
+                    "image_url": {
+                        "url": (
+                            f"data:{mime_type};"
+                            f"base64,{encoded}"
+                        )
+                    }
                 }
             )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # AUDIO
-        # ====================================================
+        # ----------------------------------------------------
 
         elif mime_type.startswith("audio/"):
+
+            audio_format = (
+                mime_type
+                .split("/")
+                [-1]
+            )
+
+            # bazı MIME türlerini düzelt
+            if audio_format == "mpeg":
+                audio_format = "mp3"
+
+            if audio_format == "x-m4a":
+                audio_format = "m4a"
 
             content.append(
                 {
                     "type": "input_audio",
-
-                    "input_audio":
-                        {
-                            "data": encoded,
-
-                            "format":
-                                mime_type.split(
-                                    "/"
-                                )[-1]
-                        }
+                    "input_audio": {
+                        "data": encoded,
+                        "format": audio_format
+                    }
                 }
             )
 
 
-        # ====================================================
-        # DİĞER DOSYALAR
-        # ====================================================
+        # ----------------------------------------------------
+        # VIDEO / OTHER
+        # ----------------------------------------------------
 
         else:
 
             content.append(
                 {
                     "type": "text",
-
-                    "text":
-                        (
-                            "\nEk medya dosyası: "
-                            + get_filename(
-                                uploaded_file
-                            )
-                            + "\nMIME: "
-                            + mime_type
-                        )
+                    "text": (
+                        "\n\n"
+                        f"Eklenen dosya: {get_filename(uploaded_file)}\n"
+                        f"MIME türü: {mime_type}"
+                    )
                 }
             )
 
-
-    # ========================================================
-    # REQUEST
-    # ========================================================
 
     response = requests.post(
 
         "https://openrouter.ai/api/v1/chat/completions",
 
         headers={
-
             "Authorization":
                 "Bearer "
                 + OPENROUTER_API_KEY,
@@ -531,43 +510,43 @@ def ask_openrouter(
                 "https://kenzasistan-m-juobhsjgs4wqdjv7ez2nq9.streamlit.app",
 
             "X-Title":
-                "Kenz Asistan",
+                "Kenz Asistan"
         },
 
         json={
+            "model": "openrouter/free",
 
-            "model":
-                "openrouter/free",
-
-            "messages":
-                [
-                    {
-                        "role":
-                            "user",
-
-                        "content":
-                            content,
-                    }
-                ],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
         },
 
-        timeout=120,
+        timeout=120
     )
 
 
     if response.status_code != 200:
 
-        raise Exception(
+        raise RuntimeError(
             "OpenRouter HTTP "
-            + str(
-                response.status_code
-            )
+            + str(response.status_code)
             + ": "
             + response.text
         )
 
 
-    data = response.json()
+    try:
+
+        data = response.json()
+
+    except Exception:
+
+        raise RuntimeError(
+            "OpenRouter geçersiz JSON döndürdü."
+        )
 
 
     try:
@@ -582,14 +561,41 @@ def ask_openrouter(
 
     except Exception:
 
-        raise Exception(
-            "OpenRouter cevap formatı geçersiz."
+        raise RuntimeError(
+            "OpenRouter cevap formatı geçersiz: "
+            + str(data)
         )
+
+
+    if isinstance(answer, list):
+
+        parts = []
+
+        for item in answer:
+
+            if isinstance(item, dict):
+
+                text = item.get(
+                    "text"
+                )
+
+                if text:
+                    parts.append(
+                        text
+                    )
+
+            elif isinstance(item, str):
+
+                parts.append(
+                    item
+                )
+
+        answer = "\n".join(parts)
 
 
     if not answer:
 
-        raise Exception(
+        raise RuntimeError(
             "OpenRouter boş cevap verdi."
         )
 
@@ -607,7 +613,7 @@ def ask_ai(
     image=None
 ):
 
-    # Eski kodlarla uyumluluk
+    # Eski app.py uyumluluğu
     if uploaded_file is None:
         uploaded_file = image
 
@@ -616,7 +622,7 @@ def ask_ai(
 
 
     # ========================================================
-    # 1 — GEMINI
+    # GEMINI
     # ========================================================
 
     try:
@@ -626,22 +632,20 @@ def ask_ai(
             uploaded_file
         )
 
-        st.session_state.last_provider = (
-            "Gemini"
-        )
+        st.session_state.last_provider = "Gemini"
 
         return answer
 
     except Exception as e:
 
         errors.append(
-            "Gemini: "
+            "Gemini → "
             + str(e)
         )
 
 
     # ========================================================
-    # 2 — OPENAI
+    # OPENAI
     # ========================================================
 
     try:
@@ -651,22 +655,20 @@ def ask_ai(
             uploaded_file
         )
 
-        st.session_state.last_provider = (
-            "OpenAI"
-        )
+        st.session_state.last_provider = "OpenAI"
 
         return answer
 
     except Exception as e:
 
         errors.append(
-            "OpenAI: "
+            "OpenAI → "
             + str(e)
         )
 
 
     # ========================================================
-    # 3 — OPENROUTER
+    # OPENROUTER
     # ========================================================
 
     try:
@@ -676,16 +678,14 @@ def ask_ai(
             uploaded_file
         )
 
-        st.session_state.last_provider = (
-            "OpenRouter"
-        )
+        st.session_state.last_provider = "OpenRouter"
 
         return answer
 
     except Exception as e:
 
         errors.append(
-            "OpenRouter: "
+            "OpenRouter → "
             + str(e)
         )
 
@@ -694,7 +694,7 @@ def ask_ai(
     # HEPSİ BAŞARISIZ
     # ========================================================
 
-    raise Exception(
-        "Tüm AI sağlayıcıları başarısız oldu.\n\n"
+    raise RuntimeError(
+        "Kenz hiçbir AI sağlayıcısından cevap alamadı.\n\n"
         + "\n".join(errors)
     )
