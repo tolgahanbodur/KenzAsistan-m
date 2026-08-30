@@ -1,93 +1,129 @@
-import os
-import json
-import google.generativeai as genai
-from PIL import Image
-import io
 import streamlit as st
+import os
+import time
+from PIL import Image
+import supabase_client as sc
+import gemini_helper as gh
 
-def configure_api():
-    api_key = os.environ.get("GEMINI_API_KEY")
-    try:
-        if not api_key: api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        pass
-        
-    if not api_key:
-        return False
-    genai.configure(api_key=api_key)
-    return True
+st.set_page_config(page_title="Gardırop Asistanı (Cloud)", page_icon="👗", layout="centered")
+st.title("☁️ Bulut Gardırop Asistanı")
 
-def extract_text(response):
-    """Gemini cevabından metni güvenle çıkarır."""
-    if hasattr(response, 'text'):
+def check_setup():
+    is_setup = True
+    missing = []
+    keys = ["GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_KEY"]
+    
+    for key in keys:
+        val = os.environ.get(key)
         try:
-            return response.text
+            if not val: val = st.secrets.get(key)
         except Exception:
             pass
-    if isinstance(response, dict):
-        if 'candidates' in response and len(response['candidates']) > 0:
-            try:
-                return response['candidates'][0]['content']['parts'][0]['text']
-            except Exception:
-                pass
-    return str(response)
+        if not val:
+            is_setup = False
+            missing.append(key)
+            
+    return is_setup, missing
 
-def analyze_clothing_item(image_bytes):
-    if not configure_api():
-        raise ValueError("API anahtarı bulunamadı.")
+is_setup, missing_keys = check_setup()
+
+if not is_setup:
+    st.warning("Uygulamanın çalışması için ayarlar eksik.")
+    st.info("Kurulumu tamamlamak için aşağıdaki bilgileri girin:")
     
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    img = Image.open(io.BytesIO(image_bytes))
+    gemini_key = st.text_input("GEMINI_API_KEY", type="password")
+    supa_url = st.text_input("SUPABASE_URL")
+    supa_key = st.text_input("SUPABASE_KEY", type="password")
     
-    prompt = """
-    Bu fotoğraftaki kıyafeti bir gardırop asistanı olarak analiz et. Lütfen cevabını SADECE geçerli bir JSON formatında ver. 
-    JSON formatı şu anahtarları tam olarak içermelidir:
-    - "category": Kıyafetin türü (örneğin: Tişört, Pantolon, Elbise, Kazak, Ceket vb.)
-    - "color": Kıyafetin baskın rengi veya renkleri
-    - "description": Kıyafetin stili, deseni, materyali ve genel görünümü hakkında yaratıcı ve kısa bir açıklama (1-2 cümle)
+    if st.button("Ayarları Kaydet ve Başla", use_container_width=True):
+        if gemini_key and supa_url and supa_key:
+            os.environ["GEMINI_API_KEY"] = gemini_key
+            os.environ["SUPABASE_URL"] = supa_url
+            os.environ["SUPABASE_KEY"] = supa_key
+            st.success("Kaydedildi! Lütfen bekleyin...")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Lütfen tüm alanları doldurun.")
+    st.stop()
+
+tab1, tab2, tab3 = st.tabs(["➕ Gardıroba Ekle", "👚 Gardırobum", "🌟 Kombin Puanla"])
+
+with tab1:
+    st.header("Yeni Kıyafet Ekle")
+    st.write("Telefon kamerasını kullanarak veya galeriden kıyafet yükleyin.")
     
-    Sadece JSON çıktısı ver, markdown işaretleri kullanma.
-    """
+    photo = st.camera_input("📷 Kamera ile Çek")
+    upload = st.file_uploader("📂 Veya Galeriden Seç", type=["jpg", "jpeg", "png"])
+    img_data = photo if photo else upload
+    
+    if img_data is not None:
+        # GÜVENLİ GÖSTERİM: Doğrudan baytları veriyoruz ve use_container_width kullanıyoruz
+        img_bytes = img_data.getvalue()
+        st.image(img_bytes, caption="Seçilen Kıyafet", use_container_width=True)
+        
+        if st.button("Kıyafeti Analiz Et ve Buluta Kaydet", type="primary", use_container_width=True):
+            with st.spinner("🚀 Bulutta analiz ediliyor ve kaydediliyor..."):
+                timestamp = int(time.time())
+                filename = f"item_{timestamp}.jpg"
+                
+                try:
+                    analysis = gh.analyze_clothing_item(img_bytes)
+                    public_url = sc.upload_image(img_bytes, filename)
+                    
+                    if public_url:
+                        sc.add_clothing_item(
+                            image_url=public_url,
+                            category=analysis.get("category", "Bilinmiyor"),
+                            color=analysis.get("color", "Bilinmiyor"),
+                            description=analysis.get("description", "Açıklama yok")
+                        )
+                        st.success("✅ Kıyafet bulut gardırobunuza başarıyla eklendi!")
+                        st.info(f"**Tür:** {analysis.get('category')} | **Renk:** {analysis.get('color')}\n\n*{analysis.get('description')}*")
+                    else:
+                        st.error("Fotoğraf buluta yüklenemedi.")
+                except Exception as e:
+                    st.error(f"Bir hata oluştu: {e}")
+
+with tab2:
+    st.header("Dijital Gardırobum")
     
     try:
-        response = model.generate_content([prompt, img])
-        text = extract_text(response).strip()
-        
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.endswith("```"):
-            text = text[:-3]
-        
-        return json.loads(text.strip())
+        clothes = sc.get_all_clothes()
+        if not clothes:
+            st.info("Bulut gardırobunuz henüz boş.")
+        else:
+            st.write(f"Bulutta toplam **{len(clothes)}** parça kıyafetiniz var.")
+            
+            cols = st.columns(2)
+            for i, item in enumerate(clothes):
+                col = cols[i % 2]
+                with col:
+                    st.container(border=True)
+                    st.image(item["image_url"], use_container_width=True)
+                    st.markdown(f"**{item.get('category')}** ({item.get('color')})")
+                    st.caption(f"{item.get('description')}")
+                    st.write("")
     except Exception as e:
-        print(f"Gemini API Hatası: {e}")
-        return {
-            "category": "Bilinmiyor",
-            "color": "Bilinmiyor",
-            "description": f"Analiz yapılamadı: {str(e)}"
-        }
+        st.error(f"Veriler çekilirken hata oluştu: {e}")
 
-def rate_outfit(image_bytes):
-    if not configure_api():
-        raise ValueError("API anahtarı bulunamadı.")
+with tab3:
+    st.header("Bugünkü Kombinim")
+    st.write("Aynadan bugünkü kombininizin fotoğrafını çekin, stilistiniz değerlendirsin!")
+    
+    outfit_photo = st.camera_input("📷 Kombin Fotoğrafı Çek")
+    outfit_upload = st.file_uploader("📂 Veya Galeriden Seç", type=["jpg", "jpeg", "png"], key="outfit")
+    outfit_data = outfit_photo if outfit_photo else outfit_upload
+    
+    if outfit_data is not None:
+        img_bytes = outfit_data.getvalue()
+        st.image(img_bytes, caption="Bugünkü Kombin", use_container_width=True)
         
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    img = Image.open(io.BytesIO(image_bytes))
-    
-    prompt = """
-    Sen uzman bir moda asistanı ve stilistsin. Bu fotoğraftaki kombini (outfit) analiz et.
-    Kullanıcıya samimi, motive edici, yapıcı ve tamamen Türkçe bir değerlendirme yaz.
-    
-    Şu başlıklara değinmelisin:
-    1. Renklerin uyumu
-    2. Tarz ve parçaların birbiriyle uyumu
-    3. Gelişim tavsiyesi (Daha iyi yapmak için ne değiştirilebilir?)
-    
-    En alt satırda kombine 10 üzerinden bir puan ver. (Örnek: "Puan: 8/10")
-    """
-    
-    try:
-        response = model.generate_content([prompt, img])
-        return extract_text(response)
-    except Exception as e:
-        return f"Kombin değerlendirilirken bir hata oluştu: {str(e)}"
+        if st.button("Kombinimi Puanla!", type="primary", use_container_width=True):
+            with st.spinner("✨ Stilistiniz kombininizi inceliyor..."):
+                try:
+                    rating_text = gh.rate_outfit(img_bytes)
+                    st.success("Değerlendirme Tamamlandı!")
+                    st.markdown(rating_text)
+                except Exception as e:
+                    st.error(f"Hata: {e}")
