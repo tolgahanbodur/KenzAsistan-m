@@ -1,4 +1,5 @@
 import os
+import uuid
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -39,6 +40,161 @@ def get_supabase() -> Client:
 
 
 # ============================================================
+# ANONYMOUS USER ID
+# ============================================================
+
+def get_user_id():
+
+    if "kenz_user_id" not in st.session_state:
+
+        st.session_state.kenz_user_id = str(
+            uuid.uuid4()
+        )
+
+    return st.session_state.kenz_user_id
+
+
+# ============================================================
+# CURRENT USER
+# ============================================================
+
+def get_current_user():
+
+    return {
+        "id": get_user_id()
+    }
+
+
+# ============================================================
+# SESSION
+# ============================================================
+
+def get_session():
+
+    return {
+        "user_id": get_user_id()
+    }
+
+
+# ============================================================
+# PROFILE
+# ============================================================
+
+def get_profile():
+
+    supabase = get_supabase()
+    user_id = get_user_id()
+
+    try:
+
+        result = (
+            supabase
+            .table("profiles")
+            .select("*")
+            .eq(
+                "id",
+                user_id
+            )
+            .limit(1)
+            .execute()
+        )
+
+        rows = (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+        if rows:
+            return rows[0]
+
+        # Profil yoksa otomatik oluştur
+        data = {
+            "id": user_id,
+            "name": "Kullanıcı",
+            "avatar_url": None,
+        }
+
+        result = (
+            supabase
+            .table("profiles")
+            .insert(data)
+            .execute()
+        )
+
+        rows = (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+        return (
+            rows[0]
+            if rows
+            else data
+        )
+
+    except Exception:
+        return {
+            "id": user_id,
+            "name": "Kullanıcı",
+            "avatar_url": None,
+        }
+
+
+# ============================================================
+# UPDATE PROFILE
+# ============================================================
+
+def update_profile(
+    name=None,
+    avatar_url=None
+):
+
+    supabase = get_supabase()
+    user_id = get_user_id()
+
+    data = {
+        "updated_at":
+            datetime.now(
+                timezone.utc
+            ).isoformat()
+    }
+
+    if name is not None:
+        data["name"] = name
+
+    if avatar_url is not None:
+        data["avatar_url"] = avatar_url
+
+    result = (
+        supabase
+        .table("profiles")
+        .update(data)
+        .eq(
+            "id",
+            user_id
+        )
+        .execute()
+    )
+
+    return (
+        getattr(
+            result,
+            "data",
+            []
+        )
+        or []
+    )
+
+
+# ============================================================
 # CONVERSATIONS
 # ============================================================
 
@@ -47,12 +203,14 @@ def create_conversation(
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
         .table("conversations")
         .insert(
             {
+                "user_id": user_id,
                 "title": title
             }
         )
@@ -75,15 +233,24 @@ def create_conversation(
     )
 
 
+# ============================================================
+# GET CONVERSATIONS
+# ============================================================
+
 def get_conversations():
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
         .table("conversations")
         .select(
-            "id,title,created_at,updated_at"
+            "id,user_id,title,created_at,updated_at"
+        )
+        .eq(
+            "user_id",
+            user_id
         )
         .order(
             "updated_at",
@@ -102,11 +269,16 @@ def get_conversations():
     )
 
 
+# ============================================================
+# GET SINGLE CONVERSATION
+# ============================================================
+
 def get_conversation(
     conversation_id
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
@@ -115,6 +287,10 @@ def get_conversation(
         .eq(
             "id",
             conversation_id
+        )
+        .eq(
+            "user_id",
+            user_id
         )
         .limit(1)
         .execute()
@@ -136,12 +312,17 @@ def get_conversation(
     )
 
 
+# ============================================================
+# UPDATE CONVERSATION TITLE
+# ============================================================
+
 def update_conversation_title(
     conversation_id,
     title
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
@@ -159,6 +340,10 @@ def update_conversation_title(
             "id",
             conversation_id
         )
+        .eq(
+            "user_id",
+            user_id
+        )
         .execute()
     )
 
@@ -172,11 +357,16 @@ def update_conversation_title(
     )
 
 
+# ============================================================
+# DELETE CONVERSATION
+# ============================================================
+
 def delete_conversation(
     conversation_id
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     (
         supabase
@@ -185,6 +375,10 @@ def delete_conversation(
         .eq(
             "id",
             conversation_id
+        )
+        .eq(
+            "user_id",
+            user_id
         )
         .execute()
     )
@@ -201,6 +395,7 @@ def get_messages(
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
@@ -209,6 +404,10 @@ def get_messages(
         .eq(
             "conversation_id",
             conversation_id
+        )
+        .eq(
+            "user_id",
+            user_id
         )
         .order(
             "created_at",
@@ -227,6 +426,10 @@ def get_messages(
     )
 
 
+# ============================================================
+# ADD MESSAGE
+# ============================================================
+
 def add_message(
     conversation_id,
     role,
@@ -238,11 +441,15 @@ def add_message(
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     data = {
 
         "conversation_id":
             conversation_id,
+
+        "user_id":
+            user_id,
 
         "role":
             role,
@@ -270,10 +477,6 @@ def add_message(
         .execute()
     )
 
-    # --------------------------------------------------------
-    # SOHBET GÜNCELLEME ZAMANI
-    # --------------------------------------------------------
-
     (
         supabase
         .table("conversations")
@@ -288,6 +491,10 @@ def add_message(
         .eq(
             "id",
             conversation_id
+        )
+        .eq(
+            "user_id",
+            user_id
         )
         .execute()
     )
@@ -314,16 +521,21 @@ def upload_file(
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
-    if not file_bytes:
-        return None
+    # Kullanıcıya özel klasör
+    storage_path = (
+        str(user_id)
+        + "/"
+        + file_name
+    )
 
     try:
 
         supabase.storage.from_(
             bucket_name
         ).upload(
-            file_name,
+            storage_path,
             file_bytes,
             {
                 "content-type":
@@ -341,7 +553,7 @@ def upload_file(
                 bucket_name
             )
             .get_public_url(
-                file_name
+                storage_path
             )
         )
 
@@ -358,7 +570,25 @@ def upload_file(
 
 
 # ============================================================
-# WARDROBE
+# IMAGE UPLOAD
+# ============================================================
+
+def upload_image(
+    file_bytes,
+    file_name,
+    bucket_name="chat_files"
+):
+
+    return upload_file(
+        file_bytes,
+        file_name,
+        "image/jpeg",
+        bucket_name
+    )
+
+
+# ============================================================
+# GARDIROP
 # ============================================================
 
 def add_clothing_item(
@@ -372,8 +602,12 @@ def add_clothing_item(
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     data = {
+
+        "user_id":
+            user_id,
 
         "image_url":
             image_url,
@@ -414,14 +648,23 @@ def add_clothing_item(
     )
 
 
+# ============================================================
+# GET WARDROBE
+# ============================================================
+
 def get_all_clothes():
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
         .table("clothes")
         .select("*")
+        .eq(
+            "user_id",
+            user_id
+        )
         .order(
             "added_date",
             desc=True
@@ -439,11 +682,16 @@ def get_all_clothes():
     )
 
 
+# ============================================================
+# DELETE CLOTHING
+# ============================================================
+
 def delete_clothing_item(
     clothing_id
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     (
         supabase
@@ -453,6 +701,10 @@ def delete_clothing_item(
             "id",
             clothing_id
         )
+        .eq(
+            "user_id",
+            user_id
+        )
         .execute()
     )
 
@@ -460,17 +712,22 @@ def delete_clothing_item(
 
 
 # ============================================================
-# MEMORY
+# USER PREFERENCES / MEMORY
 # ============================================================
 
 def get_preferences():
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     result = (
         supabase
         .table("user_preferences")
         .select("*")
+        .eq(
+            "user_id",
+            user_id
+        )
         .limit(1)
         .execute()
     )
@@ -491,11 +748,16 @@ def get_preferences():
     )
 
 
+# ============================================================
+# SAVE PREFERENCES
+# ============================================================
+
 def save_preferences(
     preferences
 ):
 
     supabase = get_supabase()
+    user_id = get_user_id()
 
     existing = get_preferences()
 
@@ -505,15 +767,14 @@ def save_preferences(
         ).isoformat()
     )
 
-    # --------------------------------------------------------
-    # VARSA GÜNCELLE
-    # --------------------------------------------------------
 
     if existing:
 
         result = (
             supabase
-            .table("user_preferences")
+            .table(
+                "user_preferences"
+            )
             .update(
                 {
                     "preferences":
@@ -524,23 +785,24 @@ def save_preferences(
                 }
             )
             .eq(
-                "id",
-                existing["id"]
+                "user_id",
+                user_id
             )
             .execute()
         )
-
-    # --------------------------------------------------------
-    # YOKSA OLUŞTUR
-    # --------------------------------------------------------
 
     else:
 
         result = (
             supabase
-            .table("user_preferences")
+            .table(
+                "user_preferences"
+            )
             .insert(
                 {
+                    "user_id":
+                        user_id,
+
                     "preferences":
                         preferences,
 
@@ -551,6 +813,7 @@ def save_preferences(
             .execute()
         )
 
+
     return (
         getattr(
             result,
@@ -559,58 +822,3 @@ def save_preferences(
         )
         or []
     )
-
-
-# ============================================================
-# AUTOMATIC MEMORY UPDATE
-# ============================================================
-
-def append_memory(
-    new_memory
-):
-
-    if not new_memory:
-        return False
-
-    new_memory = str(
-        new_memory
-    ).strip()
-
-    if not new_memory:
-        return False
-
-    existing = get_preferences()
-
-    current = ""
-
-    if existing:
-
-        current = (
-            existing.get(
-                "preferences"
-            )
-            or ""
-        )
-
-    # Aynı bilgi zaten varsa tekrar ekleme
-    if new_memory.lower() in current.lower():
-
-        return True
-
-    if current.strip():
-
-        combined = (
-            current.strip()
-            + "\n"
-            + new_memory
-        )
-
-    else:
-
-        combined = new_memory
-
-    save_preferences(
-        combined
-    )
-
-    return True
