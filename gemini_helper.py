@@ -17,13 +17,26 @@ def configure_api():
     genai.configure(api_key=api_key)
     return True
 
+def extract_text(response):
+    """Gemini cevabından metni güvenle çıkarır."""
+    if hasattr(response, 'text'):
+        try:
+            return response.text
+        except Exception:
+            pass
+    if isinstance(response, dict):
+        if 'candidates' in response and len(response['candidates']) > 0:
+            try:
+                return response['candidates'][0]['content']['parts'][0]['text']
+            except Exception:
+                pass
+    return str(response)
+
 def analyze_clothing_item(image_bytes):
     if not configure_api():
         raise ValueError("API anahtarı bulunamadı.")
     
     model = genai.GenerativeModel('gemini-1.5-flash')
-    
-    # Bayt verisini direkt PIL objesine çeviriyoruz (Diske kaydetmeden)
     img = Image.open(io.BytesIO(image_bytes))
     
     prompt = """
@@ -38,7 +51,7 @@ def analyze_clothing_item(image_bytes):
     
     try:
         response = model.generate_content([prompt, img])
-        text = response.text.strip()
+        text = extract_text(response).strip()
         
         if text.startswith("```json"):
             text = text[7:]
@@ -75,6 +88,6 @@ def rate_outfit(image_bytes):
     
     try:
         response = model.generate_content([prompt, img])
-        return response.text
+        return extract_text(response)
     except Exception as e:
         return f"Kombin değerlendirilirken bir hata oluştu: {str(e)}"
