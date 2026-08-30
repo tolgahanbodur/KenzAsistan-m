@@ -40,8 +40,14 @@ def get_supabase() -> Client:
 
 
 # ============================================================
-# ANONYMOUS USER ID
+# LOCAL USER
 # ============================================================
+
+# Login sistemi kaldırıldığı için artık Supabase Auth
+# kullanıcı ID'sine bağlı çalışmıyoruz.
+#
+# Kenz ilk açıldığında cihaz için kalıcı bir UUID oluşturulur.
+# Bu UUID Supabase'deki verilerin sahibini belirler.
 
 def get_user_id():
 
@@ -55,72 +61,62 @@ def get_user_id():
 
 
 # ============================================================
-# CURRENT USER
+# USER INFORMATION
 # ============================================================
 
 def get_current_user():
 
     return {
-        "id": get_user_id()
+        "id": get_user_id(),
+        "email": None,
+        "name": "Kullanıcı"
     }
 
-
-# ============================================================
-# SESSION
-# ============================================================
-
-def get_session():
-
-    return {
-        "user_id": get_user_id()
-    }
-
-
-# ============================================================
-# PROFILE
-# ============================================================
 
 def get_profile():
 
+    return {
+        "id": get_user_id(),
+        "email": None,
+        "name": "Kullanıcı",
+        "avatar_url": None
+    }
+
+
+def update_profile(
+    name=None,
+    avatar_url=None
+):
+
+    return {
+        "id": get_user_id(),
+        "name": name or "Kullanıcı",
+        "avatar_url": avatar_url
+    }
+
+
+# ============================================================
+# CONVERSATIONS
+# ============================================================
+
+def create_conversation(
+    title="Yeni sohbet"
+):
+
     supabase = get_supabase()
+
     user_id = get_user_id()
+
+    data = {
+        "user_id": user_id,
+        "title": title
+    }
 
     try:
 
         result = (
             supabase
-            .table("profiles")
-            .select("*")
-            .eq(
-                "id",
-                user_id
-            )
-            .limit(1)
-            .execute()
-        )
-
-        rows = (
-            getattr(
-                result,
-                "data",
-                []
-            )
-            or []
-        )
-
-        if rows:
-            return rows[0]
-
-        # Profil yoksa otomatik oluştur
-        data = {
-            "id": user_id,
-            "name": "Kullanıcı",
-            "avatar_url": None,
-        }
-
-        result = (
-            supabase
-            .table("profiles")
+            .table("conversations")
             .insert(data)
             .execute()
         )
@@ -137,100 +133,14 @@ def get_profile():
         return (
             rows[0]
             if rows
-            else data
+            else None
         )
 
-    except Exception:
-        return {
-            "id": user_id,
-            "name": "Kullanıcı",
-            "avatar_url": None,
-        }
+    except Exception as e:
 
-
-# ============================================================
-# UPDATE PROFILE
-# ============================================================
-
-def update_profile(
-    name=None,
-    avatar_url=None
-):
-
-    supabase = get_supabase()
-    user_id = get_user_id()
-
-    data = {
-        "updated_at":
-            datetime.now(
-                timezone.utc
-            ).isoformat()
-    }
-
-    if name is not None:
-        data["name"] = name
-
-    if avatar_url is not None:
-        data["avatar_url"] = avatar_url
-
-    result = (
-        supabase
-        .table("profiles")
-        .update(data)
-        .eq(
-            "id",
-            user_id
+        raise RuntimeError(
+            f"Sohbet oluşturulamadı: {e}"
         )
-        .execute()
-    )
-
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
-
-
-# ============================================================
-# CONVERSATIONS
-# ============================================================
-
-def create_conversation(
-    title="Yeni sohbet"
-):
-
-    supabase = get_supabase()
-    user_id = get_user_id()
-
-    result = (
-        supabase
-        .table("conversations")
-        .insert(
-            {
-                "user_id": user_id,
-                "title": title
-            }
-        )
-        .execute()
-    )
-
-    rows = (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
-
-    return (
-        rows[0]
-        if rows
-        else None
-    )
 
 
 # ============================================================
@@ -240,33 +150,42 @@ def create_conversation(
 def get_conversations():
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    result = (
-        supabase
-        .table("conversations")
-        .select(
-            "id,user_id,title,created_at,updated_at"
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .order(
-            "updated_at",
-            desc=True
-        )
-        .execute()
-    )
+    try:
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
+        result = (
+            supabase
+            .table("conversations")
+            .select(
+                "id,user_id,title,created_at,updated_at"
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .order(
+                "updated_at",
+                desc=True
+            )
+            .execute()
         )
-        or []
-    )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Sohbetler alınamadı: {e}"
+        )
 
 
 # ============================================================
@@ -278,38 +197,45 @@ def get_conversation(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    result = (
-        supabase
-        .table("conversations")
-        .select("*")
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .limit(1)
-        .execute()
-    )
+    try:
 
-    rows = (
-        getattr(
-            result,
-            "data",
-            []
+        result = (
+            supabase
+            .table("conversations")
+            .select("*")
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .limit(1)
+            .execute()
         )
-        or []
-    )
 
-    return (
-        rows[0]
-        if rows
-        else None
-    )
+        rows = (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+        return (
+            rows[0]
+            if rows
+            else None
+        )
+
+    except Exception:
+
+        return None
 
 
 # ============================================================
@@ -322,39 +248,48 @@ def update_conversation_title(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    result = (
-        supabase
-        .table("conversations")
-        .update(
-            {
-                "title": title,
-                "updated_at":
-                    datetime.now(
-                        timezone.utc
-                    ).isoformat()
-            }
-        )
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .execute()
-    )
+    try:
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
+        result = (
+            supabase
+            .table("conversations")
+            .update(
+                {
+                    "title": title,
+                    "updated_at":
+                        datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                }
+            )
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .execute()
         )
-        or []
-    )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Sohbet güncellenemedi: {e}"
+        )
 
 
 # ============================================================
@@ -366,24 +301,31 @@ def delete_conversation(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    (
-        supabase
-        .table("conversations")
-        .delete()
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .execute()
-    )
+    try:
 
-    return True
+        (
+            supabase
+            .table("conversations")
+            .delete()
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .execute()
+        )
+
+        return True
+
+    except Exception:
+
+        return False
 
 
 # ============================================================
@@ -395,35 +337,44 @@ def get_messages(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    result = (
-        supabase
-        .table("messages")
-        .select("*")
-        .eq(
-            "conversation_id",
-            conversation_id
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .order(
-            "created_at",
-            desc=False
-        )
-        .execute()
-    )
+    try:
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
+        result = (
+            supabase
+            .table("messages")
+            .select("*")
+            .eq(
+                "conversation_id",
+                conversation_id
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .order(
+                "created_at",
+                desc=False
+            )
+            .execute()
         )
-        or []
-    )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Mesajlar alınamadı: {e}"
+        )
 
 
 # ============================================================
@@ -441,6 +392,7 @@ def add_message(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
     data = {
@@ -470,43 +422,55 @@ def add_message(
             provider,
     }
 
-    result = (
-        supabase
-        .table("messages")
-        .insert(data)
-        .execute()
-    )
+    try:
 
-    (
-        supabase
-        .table("conversations")
-        .update(
-            {
-                "updated_at":
-                    datetime.now(
-                        timezone.utc
-                    ).isoformat()
-            }
+        result = (
+            supabase
+            .table("messages")
+            .insert(data)
+            .execute()
         )
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .execute()
-    )
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
+        # ----------------------------------------------------
+        # SOHBET ZAMANINI GÜNCELLE
+        # ----------------------------------------------------
+
+        (
+            supabase
+            .table("conversations")
+            .update(
+                {
+                    "updated_at":
+                        datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                }
+            )
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .execute()
         )
-        or []
-    )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Mesaj kaydedilemedi: {e}"
+        )
 
 
 # ============================================================
@@ -521,9 +485,10 @@ def upload_file(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    # Kullanıcıya özel klasör
+    # Her kullanıcı için ayrı klasör
     storage_path = (
         str(user_id)
         + "/"
@@ -588,7 +553,7 @@ def upload_image(
 
 
 # ============================================================
-# GARDIROP
+# WARDROBE
 # ============================================================
 
 def add_clothing_item(
@@ -602,6 +567,7 @@ def add_clothing_item(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
     data = {
@@ -631,21 +597,29 @@ def add_clothing_item(
             description,
     }
 
-    result = (
-        supabase
-        .table("clothes")
-        .insert(data)
-        .execute()
-    )
+    try:
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
+        result = (
+            supabase
+            .table("clothes")
+            .insert(data)
+            .execute()
         )
-        or []
-    )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Kıyafet kaydedilemedi: {e}"
+        )
 
 
 # ============================================================
@@ -655,31 +629,40 @@ def add_clothing_item(
 def get_all_clothes():
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    result = (
-        supabase
-        .table("clothes")
-        .select("*")
-        .eq(
-            "user_id",
-            user_id
-        )
-        .order(
-            "added_date",
-            desc=True
-        )
-        .execute()
-    )
+    try:
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
+        result = (
+            supabase
+            .table("clothes")
+            .select("*")
+            .eq(
+                "user_id",
+                user_id
+            )
+            .order(
+                "added_date",
+                desc=True
+            )
+            .execute()
         )
-        or []
-    )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Gardırop alınamadı: {e}"
+        )
 
 
 # ============================================================
@@ -691,98 +674,18 @@ def delete_clothing_item(
 ):
 
     supabase = get_supabase()
+
     user_id = get_user_id()
 
-    (
-        supabase
-        .table("clothes")
-        .delete()
-        .eq(
-            "id",
-            clothing_id
-        )
-        .eq(
-            "user_id",
-            user_id
-        )
-        .execute()
-    )
+    try:
 
-    return True
-
-
-# ============================================================
-# USER PREFERENCES / MEMORY
-# ============================================================
-
-def get_preferences():
-
-    supabase = get_supabase()
-    user_id = get_user_id()
-
-    result = (
-        supabase
-        .table("user_preferences")
-        .select("*")
-        .eq(
-            "user_id",
-            user_id
-        )
-        .limit(1)
-        .execute()
-    )
-
-    rows = (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
-
-    return (
-        rows[0]
-        if rows
-        else None
-    )
-
-
-# ============================================================
-# SAVE PREFERENCES
-# ============================================================
-
-def save_preferences(
-    preferences
-):
-
-    supabase = get_supabase()
-    user_id = get_user_id()
-
-    existing = get_preferences()
-
-    updated_at = (
-        datetime.now(
-            timezone.utc
-        ).isoformat()
-    )
-
-
-    if existing:
-
-        result = (
+        (
             supabase
-            .table(
-                "user_preferences"
-            )
-            .update(
-                {
-                    "preferences":
-                        preferences,
-
-                    "updated_at":
-                        updated_at
-                }
+            .table("clothes")
+            .delete()
+            .eq(
+                "id",
+                clothing_id
             )
             .eq(
                 "user_id",
@@ -791,34 +694,242 @@ def save_preferences(
             .execute()
         )
 
-    else:
+        return True
+
+    except Exception:
+
+        return False
+
+
+# ============================================================
+# USER MEMORY
+# ============================================================
+
+def get_preferences():
+
+    supabase = get_supabase()
+
+    user_id = get_user_id()
+
+    try:
 
         result = (
+            supabase
+            .table("user_preferences")
+            .select("*")
+            .eq(
+                "user_id",
+                user_id
+            )
+            .limit(1)
+            .execute()
+        )
+
+        rows = (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+        return (
+            rows[0]
+            if rows
+            else None
+        )
+
+    except Exception:
+
+        return None
+
+
+# ============================================================
+# SAVE MEMORY
+# ============================================================
+
+def save_preferences(
+    preferences
+):
+
+    supabase = get_supabase()
+
+    user_id = get_user_id()
+
+    now = (
+        datetime.now(
+            timezone.utc
+        ).isoformat()
+    )
+
+    existing = get_preferences()
+
+    try:
+
+        if existing:
+
+            result = (
+                supabase
+                .table(
+                    "user_preferences"
+                )
+                .update(
+                    {
+                        "preferences":
+                            preferences,
+
+                        "updated_at":
+                            now
+                    }
+                )
+                .eq(
+                    "user_id",
+                    user_id
+                )
+                .execute()
+            )
+
+        else:
+
+            result = (
+                supabase
+                .table(
+                    "user_preferences"
+                )
+                .insert(
+                    {
+                        "user_id":
+                            user_id,
+
+                        "preferences":
+                            preferences,
+
+                        "updated_at":
+                            now
+                    }
+                )
+                .execute()
+            )
+
+        return (
+            getattr(
+                result,
+                "data",
+                []
+            )
+            or []
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Hafıza kaydedilemedi: {e}"
+        )
+
+
+# ============================================================
+# AUTOMATIC MEMORY
+# ============================================================
+
+def append_memory(
+    memory_text
+):
+
+    if not memory_text:
+        return False
+
+    existing = get_preferences()
+
+    current = ""
+
+    if existing:
+
+        current = (
+            existing.get(
+                "preferences"
+            )
+            or ""
+        )
+
+    memory_text = str(
+        memory_text
+    ).strip()
+
+    if not memory_text:
+        return False
+
+    # Aynı bilgiyi tekrar tekrar ekleme
+    if memory_text.lower() in current.lower():
+
+        return True
+
+    if current.strip():
+
+        new_memory = (
+            current.rstrip()
+            + "\n"
+            + memory_text
+        )
+
+    else:
+
+        new_memory = memory_text
+
+    save_preferences(
+        new_memory
+    )
+
+    return True
+
+
+# ============================================================
+# GET ALL MEMORY
+# ============================================================
+
+def get_memory():
+
+    preferences = get_preferences()
+
+    if not preferences:
+
+        return ""
+
+    return (
+        preferences.get(
+            "preferences"
+        )
+        or ""
+    )
+
+
+# ============================================================
+# CLEAR MEMORY
+# ============================================================
+
+def clear_memory():
+
+    supabase = get_supabase()
+
+    user_id = get_user_id()
+
+    try:
+
+        (
             supabase
             .table(
                 "user_preferences"
             )
-            .insert(
-                {
-                    "user_id":
-                        user_id,
-
-                    "preferences":
-                        preferences,
-
-                    "updated_at":
-                        updated_at
-                }
+            .delete()
+            .eq(
+                "user_id",
+                user_id
             )
             .execute()
         )
 
+        return True
 
-    return (
-        getattr(
-            result,
-            "data",
-            []
-        )
-        or []
-    )
+    except Exception:
+
+        return False
