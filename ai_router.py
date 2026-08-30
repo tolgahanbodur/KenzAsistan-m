@@ -1,8 +1,8 @@
 import base64
 import io
 
-import streamlit as st
 import requests
+import streamlit as st
 
 from PIL import Image
 from google import genai
@@ -10,7 +10,7 @@ from openai import OpenAI
 
 
 # ============================================================
-# API ANAHTARLARI
+# API KEY
 # ============================================================
 
 GEMINI_API_KEY = st.secrets.get(
@@ -30,7 +30,7 @@ OPENROUTER_API_KEY = st.secrets.get(
 
 
 # ============================================================
-# CLIENT'LAR
+# CLIENT
 # ============================================================
 
 gemini_client = None
@@ -38,54 +38,59 @@ openai_client = None
 
 
 if GEMINI_API_KEY:
+
     gemini_client = genai.Client(
         api_key=GEMINI_API_KEY
     )
 
 
 if OPENAI_API_KEY:
+
     openai_client = OpenAI(
         api_key=OPENAI_API_KEY
     )
 
 
 # ============================================================
-# GÖRSEL HAZIRLAMA
+# GÖRSEL
 # ============================================================
 
-def prepare_image(image):
+def get_image_bytes(image):
 
     if image is None:
         return None
 
-    try:
 
-        if isinstance(image, bytes):
+    if isinstance(
+        image,
+        bytes
+    ):
 
-            return Image.open(
-                io.BytesIO(image)
-            )
+        return image
 
-        if hasattr(image, "getvalue"):
 
-            return Image.open(
-                io.BytesIO(
-                    image.getvalue()
-                )
-            )
+    if hasattr(
+        image,
+        "getvalue"
+    ):
 
-        if isinstance(
-            image,
-            Image.Image
-        ):
+        return image.getvalue()
 
-            return image
 
-    except Exception as e:
+    if isinstance(
+        image,
+        Image.Image
+    ):
 
-        raise Exception(
-            f"Görsel işlenemedi: {e}"
+        buffer = io.BytesIO()
+
+        image.save(
+            buffer,
+            format="JPEG"
         )
+
+        return buffer.getvalue()
+
 
     return None
 
@@ -109,33 +114,36 @@ def ask_gemini(
     contents = []
 
 
-    # Görsel varsa ekle
-    if image is not None:
+    image_bytes = get_image_bytes(
+        image
+    )
 
-        img = prepare_image(
-            image
+
+    if image_bytes:
+
+        img = Image.open(
+            io.BytesIO(
+                image_bytes
+            )
         )
 
-        if img is not None:
-
-            contents.append(
-                img
-            )
+        contents.append(
+            img
+        )
 
 
-    # Metni ekle
     contents.append(
         prompt
     )
 
 
-    # Güncel Gemini Flash modeli
-    response = gemini_client.models.generate_content(
-
-        model="gemini-2.5-flash",
-
-        contents=contents
-
+    response = (
+        gemini_client
+        .models
+        .generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+        )
     )
 
 
@@ -175,90 +183,57 @@ def ask_openai(
     content = [
 
         {
-            "type":
-                "input_text",
-
-            "text":
-                prompt
+            "type": "input_text",
+            "text": prompt,
         }
 
     ]
 
 
-    # --------------------------------------------------------
-    # GÖRSEL
-    # --------------------------------------------------------
-
-    if image is not None:
-
-        if isinstance(
-            image,
-            bytes
-        ):
-
-            image_bytes = image
-
-        elif hasattr(
-            image,
-            "getvalue"
-        ):
-
-            image_bytes = (
-                image.getvalue()
-            )
-
-        else:
-
-            raise Exception(
-                "OpenAI görsel formatı desteklenmiyor."
-            )
+    image_bytes = get_image_bytes(
+        image
+    )
 
 
-        encoded_image = (
+    if image_bytes:
+
+        encoded = (
             base64.b64encode(
                 image_bytes
-            ).decode(
+            )
+            .decode(
                 "utf-8"
             )
         )
 
 
-        content.append({
-
-            "type":
-                "input_image",
-
-            "image_url":
-                (
-                    "data:image/jpeg;base64,"
-                    + encoded_image
-                )
-
-        })
-
-
-    # --------------------------------------------------------
-    # OPENAI İSTEĞİ
-    # --------------------------------------------------------
-
-    response = openai_client.responses.create(
-
-        model="gpt-5-mini",
-
-        input=[
-
+        content.append(
             {
+                "type": "input_image",
 
-                "role":
-                    "user",
-
-                "content":
-                    content
-
+                "image_url":
+                    (
+                        "data:image/jpeg;base64,"
+                        + encoded
+                    ),
             }
+        )
 
-        ]
 
+    response = (
+        openai_client
+        .responses
+        .create(
+            model="gpt-5-mini",
+
+            input=[
+                {
+                    "role": "user",
+
+                    "content": content,
+                }
+            ],
+        )
     )
 
 
@@ -301,77 +276,45 @@ def ask_openrouter(
     content = [
 
         {
-
-            "type":
-                "text",
-
-            "text":
-                prompt
-
+            "type": "text",
+            "text": prompt,
         }
 
     ]
 
 
-    # --------------------------------------------------------
-    # GÖRSEL
-    # --------------------------------------------------------
-
-    if image is not None:
-
-        if isinstance(
-            image,
-            bytes
-        ):
-
-            image_bytes = image
-
-        elif hasattr(
-            image,
-            "getvalue"
-        ):
-
-            image_bytes = (
-                image.getvalue()
-            )
-
-        else:
-
-            raise Exception(
-                "OpenRouter görsel formatı desteklenmiyor."
-            )
+    image_bytes = get_image_bytes(
+        image
+    )
 
 
-        encoded_image = (
+    if image_bytes:
+
+        encoded = (
             base64.b64encode(
                 image_bytes
-            ).decode(
+            )
+            .decode(
                 "utf-8"
             )
         )
 
 
-        content.append({
+        content.append(
+            {
+                "type": "image_url",
 
-            "type":
-                "image_url",
-
-            "image_url": {
-
-                "url":
-                    (
-                        "data:image/jpeg;base64,"
-                        + encoded_image
-                    )
-
+                "image_url":
+                    {
+                        "url":
+                            (
+                                "data:image/jpeg;base64,"
+                                + encoded
+                            )
+                    },
             }
+        )
 
-        })
-
-
-    # --------------------------------------------------------
-    # OPENROUTER
-    # --------------------------------------------------------
 
     response = requests.post(
 
@@ -396,8 +339,7 @@ def ask_openrouter(
                 ),
 
             "X-Title":
-                "Kenz Asistan"
-
+                "Kenz Asistan",
         },
 
         json={
@@ -405,38 +347,31 @@ def ask_openrouter(
             "model":
                 "openrouter/free",
 
-            "messages": [
+            "messages":
+                [
+                    {
+                        "role":
+                            "user",
 
-                {
-
-                    "role":
-                        "user",
-
-                    "content":
-                        content
-
-                }
-
-            ]
-
+                        "content":
+                            content,
+                    }
+                ],
         },
 
-        timeout=90
-
+        timeout=90,
     )
 
 
     if response.status_code != 200:
 
         raise Exception(
-
             "OpenRouter HTTP "
             + str(
                 response.status_code
             )
             + ": "
             + response.text
-
         )
 
 
@@ -471,61 +406,7 @@ def ask_openrouter(
 
 
 # ============================================================
-# HATA KONTROLÜ
-# ============================================================
-
-def should_fallback(
-    error
-):
-
-    text = str(
-        error
-    ).lower()
-
-
-    fallback_errors = [
-
-        "400",
-        "401",
-        "402",
-        "403",
-        "408",
-        "409",
-        "429",
-        "500",
-        "502",
-        "503",
-        "504",
-
-        "api key",
-        "invalid",
-        "quota",
-        "rate limit",
-        "rate_limit",
-        "too many requests",
-        "resource exhausted",
-        "unavailable",
-        "overloaded",
-        "timeout",
-        "timed out",
-        "model not found",
-        "not found"
-
-    ]
-
-
-    for error_text in fallback_errors:
-
-        if error_text in text:
-
-            return True
-
-
-    return False
-
-
-# ============================================================
-# ANA AI ROUTER
+# ANA ROUTER
 # ============================================================
 
 def ask_ai(
@@ -537,17 +418,14 @@ def ask_ai(
 
 
     # ========================================================
-    # 1. GEMINI
+    # 1 — GEMINI
     # ========================================================
 
     try:
 
         answer = ask_gemini(
-
-            prompt=prompt,
-
-            image=image
-
+            prompt,
+            image
         )
 
 
@@ -568,17 +446,14 @@ def ask_ai(
 
 
     # ========================================================
-    # 2. OPENAI
+    # 2 — OPENAI
     # ========================================================
 
     try:
 
         answer = ask_openai(
-
-            prompt=prompt,
-
-            image=image
-
+            prompt,
+            image
         )
 
 
@@ -599,17 +474,14 @@ def ask_ai(
 
 
     # ========================================================
-    # 3. OPENROUTER
+    # 3 — OPENROUTER
     # ========================================================
 
     try:
 
         answer = ask_openrouter(
-
-            prompt=prompt,
-
-            image=image
-
+            prompt,
+            image
         )
 
 
@@ -630,17 +502,12 @@ def ask_ai(
 
 
     # ========================================================
-    # HİÇBİR MODEL ÇALIŞMADI
+    # HEPSİ BAŞARISIZ
     # ========================================================
 
-    error_message = (
+    raise Exception(
         "Tüm AI sağlayıcıları başarısız oldu.\n\n"
         + "\n".join(
             errors
         )
-    )
-
-
-    raise Exception(
-        error_message
     )
