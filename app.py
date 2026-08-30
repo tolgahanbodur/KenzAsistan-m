@@ -1,5 +1,6 @@
 import streamlit as st
 import uuid
+import json
 
 from ai_router import ask_ai
 
@@ -12,6 +13,8 @@ from supabase_client import (
     delete_conversation,
     update_conversation_title,
     upload_image,
+    add_clothing_item,
+    get_all_clothes,
 )
 
 
@@ -27,7 +30,7 @@ st.set_page_config(
 
 
 # ============================================================
-# CLIENT ID
+# CLIENT
 # ============================================================
 
 client_id = get_client_id()
@@ -49,6 +52,9 @@ if "initialized" not in st.session_state:
 if "last_provider" not in st.session_state:
     st.session_state.last_provider = None
 
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
 
 # ============================================================
 # YENİ SOHBET
@@ -65,6 +71,7 @@ def start_new_conversation():
         return False
 
     st.session_state.conversation_id = conversation["id"]
+
     st.session_state.messages = []
 
     return True
@@ -80,11 +87,205 @@ def load_conversation(conversation_id):
         conversation_id
     )
 
-    st.session_state.conversation_id = (
-        conversation_id
-    )
+    st.session_state.conversation_id = conversation_id
 
     st.session_state.messages = messages
+
+
+# ============================================================
+# GARDIROP BELLEĞİ
+# ============================================================
+
+def get_wardrobe_context():
+
+    try:
+
+        clothes = get_all_clothes()
+
+    except Exception:
+
+        return "Gardırop belleği şu anda kullanılamıyor."
+
+    if not clothes:
+
+        return (
+            "Kullanıcının gardırop belleğinde "
+            "henüz kayıtlı kıyafet bulunmuyor."
+        )
+
+    lines = []
+
+    for item in clothes:
+
+        name = item.get("name") or "İsimsiz parça"
+
+        category = item.get("category") or "Belirtilmemiş"
+
+        color = item.get("color") or "Belirtilmemiş"
+
+        style = item.get("style") or "Belirtilmemiş"
+
+        season = item.get("season") or "Belirtilmemiş"
+
+        description = (
+            item.get("description")
+            or ""
+        )
+
+        lines.append(
+            f"- {name} | "
+            f"Kategori: {category} | "
+            f"Renk: {color} | "
+            f"Stil: {style} | "
+            f"Mevsim: {season} | "
+            f"Detay: {description}"
+        )
+
+    return "\n".join(lines)
+
+
+# ============================================================
+# GÖRSEL KIYAFET Mİ?
+# ============================================================
+
+def analyze_clothing_image(image_bytes):
+
+    if not image_bytes:
+        return None
+
+    prompt = """
+Bu görseli analiz et.
+
+Eğer görselde bir veya daha fazla kıyafet,
+ayakkabı veya aksesuar varsa bunları gardırop
+hafızasına kaydedilebilecek şekilde analiz et.
+
+Sadece kıyafet/ayakkabı/aksesuar varsa JSON döndür.
+
+JSON formatı:
+
+{
+    "is_clothing": true,
+    "items": [
+        {
+            "name": "kıyafetin kısa adı",
+            "category": "kategori",
+            "color": "renk",
+            "style": "stil",
+            "season": "mevsim",
+            "description": "detaylı kısa açıklama"
+        }
+    ]
+}
+
+Eğer görsel kıyafet içermiyorsa:
+
+{
+    "is_clothing": false,
+    "items": []
+}
+
+JSON dışında hiçbir şey yazma.
+"""
+
+    try:
+
+        result = ask_ai(
+            prompt=prompt,
+            image=image_bytes,
+        )
+
+        if not result:
+            return None
+
+        # Markdown JSON temizleme
+        text = result.strip()
+
+        if text.startswith("```"):
+            text = text.replace(
+                "```json",
+                ""
+            )
+
+            text = text.replace(
+                "```",
+                ""
+            )
+
+            text = text.strip()
+
+        data = json.loads(text)
+
+        return data
+
+    except Exception:
+
+        return None
+
+
+# ============================================================
+# KIYAFETLERİ KAYDET
+# ============================================================
+
+def save_clothing_items(
+    image_url,
+    clothing_data
+):
+
+    if not clothing_data:
+        return 0
+
+    if not clothing_data.get(
+        "is_clothing",
+        False
+    ):
+        return 0
+
+    items = clothing_data.get(
+        "items",
+        []
+    )
+
+    saved = 0
+
+    for item in items:
+
+        try:
+
+            add_clothing_item(
+
+                image_url=image_url,
+
+                category=(
+                    item.get("category")
+                    or "Diğer"
+                ),
+
+                color=(
+                    item.get("color")
+                    or "Belirtilmemiş"
+                ),
+
+                description=(
+                    (
+                        item.get("name")
+                        or ""
+                    )
+                    + " - "
+                    + (
+                        item.get("description")
+                        or ""
+                    )
+                ),
+            )
+
+            saved += 1
+
+        except Exception:
+
+            continue
+
+    return saved
 
 
 # ============================================================
@@ -137,9 +338,9 @@ with st.sidebar:
     st.divider()
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # YENİ SOHBET
-    # --------------------------------------------------------
+    # ========================================================
 
     if st.button(
         "＋ Yeni sohbet",
@@ -164,14 +365,13 @@ with st.sidebar:
     st.divider()
 
 
-    # --------------------------------------------------------
-    # SOHBET GEÇMİŞİ
-    # --------------------------------------------------------
+    # ========================================================
+    # SOHBETLER
+    # ========================================================
 
     st.subheader(
         "💬 Sohbetler"
     )
-
 
     try:
 
@@ -206,13 +406,27 @@ with st.sidebar:
             or "Yeni sohbet"
         )
 
-        if len(title) > 30:
+        if len(title) > 32:
 
-            title = title[:30] + "..."
+            title = (
+                title[:32]
+                + "..."
+            )
 
+        is_current = (
+            conversation_id
+            ==
+            st.session_state.conversation_id
+        )
+
+        button_text = (
+            "🟢 "
+            if is_current
+            else "💬 "
+        ) + title
 
         if st.button(
-            "💬 " + title,
+            button_text,
             key="chat_" + conversation_id,
             use_container_width=True,
         ):
@@ -227,9 +441,39 @@ with st.sidebar:
     st.divider()
 
 
-    # --------------------------------------------------------
+    # ========================================================
+    # GARDIROP
+    # ========================================================
+
+    st.subheader(
+        "👕 Gardırop"
+    )
+
+    try:
+
+        wardrobe = get_all_clothes()
+
+        wardrobe_count = len(
+            wardrobe
+        )
+
+        st.caption(
+            f"{wardrobe_count} kayıtlı parça"
+        )
+
+    except Exception:
+
+        st.caption(
+            "Gardırop belleği yüklenemedi."
+        )
+
+
+    st.divider()
+
+
+    # ========================================================
     # SON MODEL
-    # --------------------------------------------------------
+    # ========================================================
 
     if st.session_state.last_provider:
 
@@ -241,13 +485,12 @@ with st.sidebar:
             st.session_state.last_provider
         )
 
+        st.divider()
 
-    st.divider()
 
-
-    # --------------------------------------------------------
+    # ========================================================
     # SOHBET SİL
-    # --------------------------------------------------------
+    # ========================================================
 
     if st.session_state.conversation_id:
 
@@ -264,6 +507,7 @@ with st.sidebar:
                 )
 
                 st.session_state.conversation_id = None
+
                 st.session_state.messages = []
 
                 conversations = get_conversations(
@@ -324,12 +568,10 @@ for message in st.session_state.messages:
         "image_url"
     )
 
-
     with st.chat_message(
         role
     ):
 
-        # Görsel varsa göster
         if image_url:
 
             st.image(
@@ -362,18 +604,22 @@ Ben **Kenz**.
 
 Benimle normal şekilde sohbet edebilirsin.
 
-Ayrıca fotoğraf göndererek görseli analiz
-etmemi de isteyebilirsin.
+Ayrıca fotoğraf gönderebilirsin.
+
+📷 Bir kıyafet fotoğrafı gönderirsen
+onu gardırop hafızama kaydedebilirim.
 
 Örneğin:
 
-👕 **"Bu kombin nasıl?"**
+👕 **"Bu gömleği gardırobuma ekle."**
 
-📸 **"Bu fotoğrafta ne görüyorsun?"**
+👔 **"Bu kombin nasıl?"**
 
-🎨 **"Bu renkler uyumlu mu?"**
+👖 **"Bu pantolonla ne giyebilirim?"**
 
-💇 **"Saçımı değerlendir."**
+🔥 **"Bugün ne giysem?"**
+
+🧠 **"Gardırobumda hangi siyah parçalar var?"**
 """
         )
 
@@ -384,13 +630,17 @@ etmemi de isteyebilirsin.
 
 uploaded_file = st.file_uploader(
     "📷 Görsel ekle",
+
     type=[
         "jpg",
         "jpeg",
         "png",
         "webp",
     ],
+
     accept_multiple_files=False,
+
+    key=f"uploader_{st.session_state.uploader_key}",
 )
 
 
@@ -416,20 +666,17 @@ if user_message or uploaded_file:
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # GÖRSEL BYTES
-    # --------------------------------------------------------
+    # ========================================================
 
     image_bytes = None
-
 
     if uploaded_file:
 
         try:
 
-            image_bytes = (
-                uploaded_file.getvalue()
-            )
+            image_bytes = uploaded_file.getvalue()
 
         except Exception as e:
 
@@ -442,9 +689,9 @@ if user_message or uploaded_file:
             st.stop()
 
 
-    # --------------------------------------------------------
-    # HİÇBİR ŞEY YOKSA
-    # --------------------------------------------------------
+    # ========================================================
+    # HİÇBİR ŞEY YOK
+    # ========================================================
 
     if (
         not user_message
@@ -497,18 +744,34 @@ if user_message or uploaded_file:
 
 
     # ========================================================
-    # GÖRSELİ SUPABASE STORAGE'A YÜKLE
+    # STORAGE
     # ========================================================
 
     image_url = None
 
-
     if image_bytes:
+
+        extension = "jpg"
+
+        if uploaded_file:
+
+            original_name = (
+                uploaded_file.name
+                .lower()
+            )
+
+            if original_name.endswith(".png"):
+                extension = "png"
+
+            elif original_name.endswith(".webp"):
+                extension = "webp"
+
 
         file_name = (
             "chat/"
             + str(uuid.uuid4())
-            + ".jpg"
+            + "."
+            + extension
         )
 
 
@@ -530,11 +793,10 @@ if user_message or uploaded_file:
 
 
     # ========================================================
-    # AI GEÇMİŞİ
+    # SOHBET GEÇMİŞİ
     # ========================================================
 
     history_text = ""
-
 
     for message in st.session_state.messages:
 
@@ -550,7 +812,6 @@ if user_message or uploaded_file:
         if not content:
             continue
 
-
         if role == "user":
 
             history_text += (
@@ -564,6 +825,13 @@ if user_message or uploaded_file:
                 "\nKenz: "
                 + content
             )
+
+
+    # ========================================================
+    # GARDIROP BELLEĞİ
+    # ========================================================
+
+    wardrobe_context = get_wardrobe_context()
 
 
     # ========================================================
@@ -584,10 +852,25 @@ Kullanıcı görsel gönderirse görseli gerçekten analiz et.
 Görselde kıyafet, kombin, saç, ürün, nesne,
 mekan veya başka bir şey varsa analiz edebilirsin.
 
-Kullanıcı "bu kombin nasıl?" gibi bir soru
-sorarsa görseldeki kıyafetleri değerlendir.
-
 Görseli görmediğin halde görmüş gibi davranma.
+
+Kullanıcının gardırop belleği aşağıda verilmiştir.
+
+Kullanıcı "bugün ne giysem?",
+"ne giyebilirim?",
+"bana kombin yap",
+"hangi pantolonla bu gömlek olur?"
+gibi bir soru sorarsa gardırop belleğindeki
+kıyafetleri kullan.
+
+Gardıropta olmayan bir parçayı kullanıcıda
+varmış gibi gösterme.
+
+Kombin önerirken renk, mevsim, stil ve
+parçaların birbiriyle uyumunu değerlendir.
+
+Kullanıcı yeni bir kıyafet fotoğrafı gönderirse
+görseli analiz et.
 
 Soruyu doğrudan cevapla.
 
@@ -600,10 +883,21 @@ Gereksiz yere uzun cevap verme.
     # ========================================================
 
     prompt = (
+
         system_prompt
-        + "\n\nÖNCEKİ SOHBET:"
+
+        + "\n\n"
+        + "KULLANICININ GARDIROP BELLEĞİ:"
+        + "\n"
+        + wardrobe_context
+
+        + "\n\n"
+        + "ÖNCEKİ SOHBET:"
         + history_text
-        + "\n\nYENİ KULLANICI MESAJI:"
+
+        + "\n\n"
+        + "YENİ KULLANICI MESAJI:"
+        + "\n"
         + (
             user_message
             if user_message
@@ -621,6 +915,7 @@ Gereksiz yere uzun cevap verme.
     try:
 
         add_message(
+
             conversation_id=(
                 st.session_state.conversation_id
             ),
@@ -641,6 +936,26 @@ Gereksiz yere uzun cevap verme.
         )
 
         st.exception(e)
+
+
+    # ========================================================
+    # GARDIROP ANALİZİ
+    # ========================================================
+
+    clothing_saved = 0
+
+    if image_bytes and image_url:
+
+        # Kullanıcı kıyafetle ilgiliyse
+        # otomatik olarak gardırop analizine çalış.
+        clothing_saved_data = analyze_clothing_image(
+            image_bytes
+        )
+
+        clothing_saved = save_clothing_items(
+            image_url,
+            clothing_saved_data
+        )
 
 
     # ========================================================
@@ -671,6 +986,20 @@ Gereksiz yere uzun cevap verme.
                 )
 
 
+                # ============================================
+                # GARDIROP BİLGİSİ
+                # ============================================
+
+                if clothing_saved > 0:
+
+                    answer += (
+
+                        f"\n\n"
+                        f"👕 **{clothing_saved} parça "
+                        f"gardırop hafızama kaydedildi.**"
+                    )
+
+
                 st.markdown(
                     answer
                 )
@@ -683,6 +1012,7 @@ Gereksiz yere uzun cevap verme.
                 try:
 
                     add_message(
+
                         conversation_id=(
                             st.session_state
                             .conversation_id
@@ -757,7 +1087,6 @@ Gereksiz yere uzun cevap verme.
 
                 current = None
 
-
                 for conversation in conversations:
 
                     if (
@@ -783,13 +1112,18 @@ Gereksiz yere uzun cevap verme.
                     ):
 
                         title = (
+
                             user_message[:40]
+
                             if user_message
-                            else "Görsel sohbet"
+
+                            else
+                            "Görsel sohbet"
                         )
 
 
                         update_conversation_title(
+
                             st.session_state
                             .conversation_id,
 
@@ -797,6 +1131,16 @@ Gereksiz yere uzun cevap verme.
 
                             title,
                         )
+
+
+                # ============================================
+                # UPLOADER SIFIRLA
+                # ============================================
+
+                st.session_state.uploader_key += 1
+
+
+                st.rerun()
 
 
             except Exception as e:
