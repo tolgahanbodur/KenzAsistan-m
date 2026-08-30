@@ -1,6 +1,6 @@
 streamlit
+supabase
 google-genai
 openai
 requests
-pillow
-supabase
+Pillow
