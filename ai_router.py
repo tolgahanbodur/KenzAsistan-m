@@ -1,513 +1,808 @@
-import base64
-import io
-
-import requests
 import streamlit as st
+import uuid
 
-from PIL import Image
-from google import genai
-from openai import OpenAI
+from ai_router import ask_ai
 
-
-# ============================================================
-# API KEY
-# ============================================================
-
-GEMINI_API_KEY = st.secrets.get(
-    "GEMINI_API_KEY",
-    ""
-)
-
-OPENAI_API_KEY = st.secrets.get(
-    "OPENAI_API_KEY",
-    ""
-)
-
-OPENROUTER_API_KEY = st.secrets.get(
-    "OPENROUTER_API_KEY",
-    ""
+from supabase_client import (
+    get_client_id,
+    get_conversations,
+    create_conversation,
+    get_messages,
+    add_message,
+    delete_conversation,
+    update_conversation_title,
+    upload_image,
 )
 
 
 # ============================================================
-# CLIENT
+# SAYFA
 # ============================================================
 
-gemini_client = None
-openai_client = None
+st.set_page_config(
+    page_title="Kenz Asistan",
+    page_icon="🤖",
+    layout="wide",
+)
 
 
-if GEMINI_API_KEY:
+# ============================================================
+# CLIENT ID
+# ============================================================
 
-    gemini_client = genai.Client(
-        api_key=GEMINI_API_KEY
+client_id = get_client_id()
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = None
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "initialized" not in st.session_state:
+    st.session_state.initialized = False
+
+if "last_provider" not in st.session_state:
+    st.session_state.last_provider = None
+
+
+# ============================================================
+# YENİ SOHBET
+# ============================================================
+
+def start_new_conversation():
+
+    conversation = create_conversation(
+        client_id=client_id,
+        title="Yeni sohbet",
     )
 
+    if not conversation:
+        return False
 
-if OPENAI_API_KEY:
+    st.session_state.conversation_id = conversation["id"]
+    st.session_state.messages = []
 
-    openai_client = OpenAI(
-        api_key=OPENAI_API_KEY
+    return True
+
+
+# ============================================================
+# SOHBET YÜKLE
+# ============================================================
+
+def load_conversation(conversation_id):
+
+    messages = get_messages(
+        conversation_id
     )
 
+    st.session_state.conversation_id = (
+        conversation_id
+    )
+
+    st.session_state.messages = messages
+
 
 # ============================================================
-# GÖRSEL
+# İLK AÇILIŞ
 # ============================================================
 
-def get_image_bytes(image):
+if not st.session_state.initialized:
 
-    if image is None:
-        return None
+    try:
 
-
-    if isinstance(
-        image,
-        bytes
-    ):
-
-        return image
-
-
-    if hasattr(
-        image,
-        "getvalue"
-    ):
-
-        return image.getvalue()
-
-
-    if isinstance(
-        image,
-        Image.Image
-    ):
-
-        buffer = io.BytesIO()
-
-        image.save(
-            buffer,
-            format="JPEG"
+        conversations = get_conversations(
+            client_id
         )
 
-        return buffer.getvalue()
+        if conversations:
 
+            load_conversation(
+                conversations[0]["id"]
+            )
 
-    return None
+        else:
+
+            start_new_conversation()
+
+        st.session_state.initialized = True
+
+    except Exception as e:
+
+        st.error(
+            "Kenz başlatılırken hata oluştu."
+        )
+
+        st.exception(e)
+
+        st.stop()
 
 
 # ============================================================
-# GEMINI
+# SIDEBAR
 # ============================================================
 
-def ask_gemini(
-    prompt,
-    image=None
-):
+with st.sidebar:
 
-    if not gemini_client:
+    st.title("🤖 Kenz")
 
-        raise Exception(
-            "GEMINI_API_KEY bulunamadı."
+    st.caption(
+        "Kişisel yapay zeka asistanın"
+    )
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # YENİ SOHBET
+    # --------------------------------------------------------
+
+    if st.button(
+        "＋ Yeni sohbet",
+        use_container_width=True,
+    ):
+
+        try:
+
+            if start_new_conversation():
+
+                st.rerun()
+
+        except Exception as e:
+
+            st.error(
+                "Yeni sohbet oluşturulamadı."
+            )
+
+            st.exception(e)
+
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # SOHBET GEÇMİŞİ
+    # --------------------------------------------------------
+
+    st.subheader(
+        "💬 Sohbetler"
+    )
+
+
+    try:
+
+        conversations = get_conversations(
+            client_id
+        )
+
+    except Exception as e:
+
+        conversations = []
+
+        st.error(
+            "Sohbetler alınamadı."
+        )
+
+        st.exception(e)
+
+
+    if not conversations:
+
+        st.caption(
+            "Henüz sohbet yok."
         )
 
 
-    contents = []
+    for conversation in conversations:
+
+        conversation_id = conversation["id"]
+
+        title = (
+            conversation.get("title")
+            or "Yeni sohbet"
+        )
+
+        if len(title) > 30:
+
+            title = title[:30] + "..."
 
 
-    image_bytes = get_image_bytes(
-        image
+        if st.button(
+            "💬 " + title,
+            key="chat_" + conversation_id,
+            use_container_width=True,
+        ):
+
+            load_conversation(
+                conversation_id
+            )
+
+            st.rerun()
+
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # SON MODEL
+    # --------------------------------------------------------
+
+    if st.session_state.last_provider:
+
+        st.caption(
+            "Son kullanılan model"
+        )
+
+        st.write(
+            st.session_state.last_provider
+        )
+
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # SOHBET SİL
+    # --------------------------------------------------------
+
+    if st.session_state.conversation_id:
+
+        if st.button(
+            "🗑️ Bu sohbeti sil",
+            use_container_width=True,
+        ):
+
+            try:
+
+                delete_conversation(
+                    st.session_state.conversation_id,
+                    client_id,
+                )
+
+                st.session_state.conversation_id = None
+                st.session_state.messages = []
+
+                conversations = get_conversations(
+                    client_id
+                )
+
+                if conversations:
+
+                    load_conversation(
+                        conversations[0]["id"]
+                    )
+
+                else:
+
+                    start_new_conversation()
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    "Sohbet silinemedi."
+                )
+
+                st.exception(e)
+
+
+# ============================================================
+# ANA EKRAN
+# ============================================================
+
+st.title(
+    "🤖 Kenz Asistan"
+)
+
+st.caption(
+    "Yazılı ve görsel sohbet edebilirsin."
+)
+
+
+# ============================================================
+# GEÇMİŞ MESAJLAR
+# ============================================================
+
+for message in st.session_state.messages:
+
+    role = message.get(
+        "role",
+        "assistant"
     )
+
+    content = message.get(
+        "content",
+        ""
+    )
+
+    image_url = message.get(
+        "image_url"
+    )
+
+
+    with st.chat_message(
+        role
+    ):
+
+        # Görsel varsa göster
+        if image_url:
+
+            st.image(
+                image_url,
+                use_container_width=True
+            )
+
+        if content:
+
+            st.markdown(
+                content
+            )
+
+
+# ============================================================
+# BOŞ SOHBET
+# ============================================================
+
+if not st.session_state.messages:
+
+    with st.chat_message(
+        "assistant"
+    ):
+
+        st.markdown(
+            """
+### Merhaba 👋
+
+Ben **Kenz**.
+
+Benimle normal şekilde sohbet edebilirsin.
+
+Ayrıca fotoğraf göndererek görseli analiz
+etmemi de isteyebilirsin.
+
+Örneğin:
+
+👕 **"Bu kombin nasıl?"**
+
+📸 **"Bu fotoğrafta ne görüyorsun?"**
+
+🎨 **"Bu renkler uyumlu mu?"**
+
+💇 **"Saçımı değerlendir."**
+"""
+        )
+
+
+# ============================================================
+# GÖRSEL YÜKLEME
+# ============================================================
+
+uploaded_file = st.file_uploader(
+    "📷 Görsel ekle",
+    type=[
+        "jpg",
+        "jpeg",
+        "png",
+        "webp",
+    ],
+    accept_multiple_files=False,
+)
+
+
+# ============================================================
+# CHAT
+# ============================================================
+
+user_message = st.chat_input(
+    "Kenz'e mesaj yaz..."
+)
+
+
+# ============================================================
+# MESAJ GELDİ
+# ============================================================
+
+if user_message or uploaded_file:
+
+    user_message = (
+        user_message.strip()
+        if user_message
+        else ""
+    )
+
+
+    # --------------------------------------------------------
+    # GÖRSEL BYTES
+    # --------------------------------------------------------
+
+    image_bytes = None
+
+
+    if uploaded_file:
+
+        try:
+
+            image_bytes = (
+                uploaded_file.getvalue()
+            )
+
+        except Exception as e:
+
+            st.error(
+                "Görsel okunamadı."
+            )
+
+            st.exception(e)
+
+            st.stop()
+
+
+    # --------------------------------------------------------
+    # HİÇBİR ŞEY YOKSA
+    # --------------------------------------------------------
+
+    if (
+        not user_message
+        and not image_bytes
+    ):
+
+        st.warning(
+            "Mesaj yaz veya görsel gönder."
+        )
+
+        st.stop()
+
+
+    # ========================================================
+    # KULLANICI MESAJI
+    # ========================================================
+
+    with st.chat_message(
+        "user"
+    ):
+
+        if image_bytes:
+
+            st.image(
+                image_bytes,
+                caption="Gönderilen görsel",
+                use_container_width=True
+            )
+
+        if user_message:
+
+            st.markdown(
+                user_message
+            )
+
+
+    # ========================================================
+    # SOHBET ID
+    # ========================================================
+
+    if not st.session_state.conversation_id:
+
+        if not start_new_conversation():
+
+            st.error(
+                "Sohbet oluşturulamadı."
+            )
+
+            st.stop()
+
+
+    # ========================================================
+    # GÖRSELİ SUPABASE STORAGE'A YÜKLE
+    # ========================================================
+
+    image_url = None
 
 
     if image_bytes:
 
-        img = Image.open(
-            io.BytesIO(
-                image_bytes
+        file_name = (
+            "chat/"
+            + str(uuid.uuid4())
+            + ".jpg"
+        )
+
+
+        try:
+
+            image_url = upload_image(
+                image_bytes,
+                file_name,
+                bucket_name="chat_images",
             )
-        )
 
-        contents.append(
-            img
-        )
+        except Exception as e:
 
-
-    contents.append(
-        prompt
-    )
-
-
-    response = (
-        gemini_client
-        .models
-        .generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
-        )
-    )
-
-
-    if not response:
-
-        raise Exception(
-            "Gemini cevap vermedi."
-        )
-
-
-    if not response.text:
-
-        raise Exception(
-            "Gemini boş cevap verdi."
-        )
-
-
-    return response.text
-
-
-# ============================================================
-# OPENAI
-# ============================================================
-
-def ask_openai(
-    prompt,
-    image=None
-):
-
-    if not openai_client:
-
-        raise Exception(
-            "OPENAI_API_KEY bulunamadı."
-        )
-
-
-    content = [
-
-        {
-            "type": "input_text",
-            "text": prompt,
-        }
-
-    ]
-
-
-    image_bytes = get_image_bytes(
-        image
-    )
-
-
-    if image_bytes:
-
-        encoded = (
-            base64.b64encode(
-                image_bytes
+            st.warning(
+                "Görsel Storage'a kaydedilemedi."
             )
-            .decode(
-                "utf-8"
+
+            st.exception(e)
+
+
+    # ========================================================
+    # AI GEÇMİŞİ
+    # ========================================================
+
+    history_text = ""
+
+
+    for message in st.session_state.messages:
+
+        role = message.get(
+            "role"
+        )
+
+        content = message.get(
+            "content",
+            ""
+        )
+
+        if not content:
+            continue
+
+
+        if role == "user":
+
+            history_text += (
+                "\nKullanıcı: "
+                + content
             )
-        )
+
+        elif role == "assistant":
+
+            history_text += (
+                "\nKenz: "
+                + content
+            )
 
 
-        content.append(
-            {
-                "type": "input_image",
+    # ========================================================
+    # SYSTEM PROMPT
+    # ========================================================
 
-                "image_url":
-                    (
-                        "data:image/jpeg;base64,"
-                        + encoded
-                    ),
-            }
-        )
+    system_prompt = """
+Sen Kenz adında kişisel bir yapay zeka asistanısın.
+
+Kullanıcıyla Türkçe konuş.
+
+Samimi, doğal, akıllı ve yardımcı ol.
+
+Kullanıcı normal sohbet edebilir.
+
+Kullanıcı görsel gönderirse görseli gerçekten analiz et.
+
+Görselde kıyafet, kombin, saç, ürün, nesne,
+mekan veya başka bir şey varsa analiz edebilirsin.
+
+Kullanıcı "bu kombin nasıl?" gibi bir soru
+sorarsa görseldeki kıyafetleri değerlendir.
+
+Görseli görmediğin halde görmüş gibi davranma.
+
+Soruyu doğrudan cevapla.
+
+Gereksiz yere uzun cevap verme.
+"""
 
 
-    response = (
-        openai_client
-        .responses
-        .create(
-            model="gpt-5-mini",
+    # ========================================================
+    # PROMPT
+    # ========================================================
 
-            input=[
-                {
-                    "role": "user",
-
-                    "content": content,
-                }
-            ],
+    prompt = (
+        system_prompt
+        + "\n\nÖNCEKİ SOHBET:"
+        + history_text
+        + "\n\nYENİ KULLANICI MESAJI:"
+        + (
+            user_message
+            if user_message
+            else
+            "Kullanıcı bir görsel gönderdi. "
+            "Görseli analiz et."
         )
     )
 
 
-    if not response:
+    # ========================================================
+    # USER MESSAGE SAVE
+    # ========================================================
 
-        raise Exception(
-            "OpenAI cevap vermedi."
+    try:
+
+        add_message(
+            conversation_id=(
+                st.session_state.conversation_id
+            ),
+
+            role="user",
+
+            content=user_message,
+
+            image_url=image_url,
+
+            provider=None,
         )
 
+    except Exception as e:
 
-    answer = response.output_text
-
-
-    if not answer:
-
-        raise Exception(
-            "OpenAI boş cevap verdi."
+        st.warning(
+            "Kullanıcı mesajı kaydedilemedi."
         )
 
-
-    return answer
-
-
-# ============================================================
-# OPENROUTER
-# ============================================================
-
-def ask_openrouter(
-    prompt,
-    image=None
-):
-
-    if not OPENROUTER_API_KEY:
-
-        raise Exception(
-            "OPENROUTER_API_KEY bulunamadı."
-        )
+        st.exception(e)
 
 
-    content = [
+    # ========================================================
+    # AI
+    # ========================================================
 
-        {
-            "type": "text",
-            "text": prompt,
-        }
+    with st.chat_message(
+        "assistant"
+    ):
 
-    ]
+        with st.spinner(
+            "Kenz düşünüyor..."
+        ):
 
+            try:
 
-    image_bytes = get_image_bytes(
-        image
-    )
-
-
-    if image_bytes:
-
-        encoded = (
-            base64.b64encode(
-                image_bytes
-            )
-            .decode(
-                "utf-8"
-            )
-        )
+                answer = ask_ai(
+                    prompt=prompt,
+                    image=image_bytes,
+                )
 
 
-        content.append(
-            {
-                "type": "image_url",
-
-                "image_url":
-                    {
-                        "url":
-                            (
-                                "data:image/jpeg;base64,"
-                                + encoded
-                            )
-                    },
-            }
-        )
+                provider = (
+                    st.session_state
+                    .get(
+                        "last_provider"
+                    )
+                )
 
 
-    response = requests.post(
+                st.markdown(
+                    answer
+                )
 
-        "https://openrouter.ai/api/v1/chat/completions",
 
-        headers={
+                # ============================================
+                # AI MESAJINI KAYDET
+                # ============================================
 
-            "Authorization":
-                (
-                    "Bearer "
-                    + OPENROUTER_API_KEY
-                ),
+                try:
 
-            "Content-Type":
-                "application/json",
+                    add_message(
+                        conversation_id=(
+                            st.session_state
+                            .conversation_id
+                        ),
 
-            "HTTP-Referer":
-                (
-                    "https://kenzasistan-m-"
-                    "juobhsjgs4wqdjv7ez2nq9"
-                    ".streamlit.app"
-                ),
+                        role="assistant",
 
-            "X-Title":
-                "Kenz Asistan",
-        },
+                        content=answer,
 
-        json={
+                        image_url=None,
 
-            "model":
-                "openrouter/free",
+                        provider=provider,
+                    )
 
-            "messages":
-                [
+                except Exception as e:
+
+                    st.warning(
+                        "AI cevabı kaydedilemedi."
+                    )
+
+                    st.exception(e)
+
+
+                # ============================================
+                # SESSION
+                # ============================================
+
+                st.session_state.messages.append(
                     {
                         "role":
                             "user",
 
                         "content":
-                            content,
+                            user_message,
+
+                        "image_url":
+                            image_url,
+
+                        "provider":
+                            None,
                     }
-                ],
-        },
-
-        timeout=90,
-    )
+                )
 
 
-    if response.status_code != 200:
+                st.session_state.messages.append(
+                    {
+                        "role":
+                            "assistant",
 
-        raise Exception(
-            "OpenRouter HTTP "
-            + str(
-                response.status_code
-            )
-            + ": "
-            + response.text
-        )
+                        "content":
+                            answer,
 
+                        "image_url":
+                            None,
 
-    data = response.json()
-
-
-    try:
-
-        answer = (
-            data
-            ["choices"]
-            [0]
-            ["message"]
-            ["content"]
-        )
-
-    except Exception:
-
-        raise Exception(
-            "OpenRouter cevap formatı geçersiz."
-        )
+                        "provider":
+                            provider,
+                    }
+                )
 
 
-    if not answer:
+                # ============================================
+                # SOHBET BAŞLIĞI
+                # ============================================
 
-        raise Exception(
-            "OpenRouter boş cevap verdi."
-        )
-
-
-    return answer
-
-
-# ============================================================
-# ANA ROUTER
-# ============================================================
-
-def ask_ai(
-    prompt,
-    image=None
-):
-
-    errors = []
+                conversations = (
+                    get_conversations(
+                        client_id
+                    )
+                )
 
 
-    # ========================================================
-    # 1 — GEMINI
-    # ========================================================
-
-    try:
-
-        answer = ask_gemini(
-            prompt,
-            image
-        )
+                current = None
 
 
-        st.session_state.last_provider = (
-            "Gemini"
-        )
+                for conversation in conversations:
+
+                    if (
+                        conversation["id"]
+                        ==
+                        st.session_state
+                        .conversation_id
+                    ):
+
+                        current = conversation
+
+                        break
 
 
-        return answer
+                if current:
+
+                    if (
+                        current.get(
+                            "title"
+                        )
+                        ==
+                        "Yeni sohbet"
+                    ):
+
+                        title = (
+                            user_message[:40]
+                            if user_message
+                            else "Görsel sohbet"
+                        )
 
 
-    except Exception as e:
+                        update_conversation_title(
+                            st.session_state
+                            .conversation_id,
 
-        errors.append(
-            "Gemini: "
-            + str(e)
-        )
+                            client_id,
 
-
-    # ========================================================
-    # 2 — OPENAI
-    # ========================================================
-
-    try:
-
-        answer = ask_openai(
-            prompt,
-            image
-        )
+                            title,
+                        )
 
 
-        st.session_state.last_provider = (
-            "OpenAI"
-        )
+            except Exception as e:
 
+                st.error(
+                    "Kenz cevap veremedi."
+                )
 
-        return answer
-
-
-    except Exception as e:
-
-        errors.append(
-            "OpenAI: "
-            + str(e)
-        )
-
-
-    # ========================================================
-    # 3 — OPENROUTER
-    # ========================================================
-
-    try:
-
-        answer = ask_openrouter(
-            prompt,
-            image
-        )
-
-
-        st.session_state.last_provider = (
-            "OpenRouter"
-        )
-
-
-        return answer
-
-
-    except Exception as e:
-
-        errors.append(
-            "OpenRouter: "
-            + str(e)
-        )
-
-
-    # ========================================================
-    # HEPSİ BAŞARISIZ
-    # ========================================================
-
-    raise Exception(
-        "Tüm AI sağlayıcıları başarısız oldu.\n\n"
-        + "\n".join(
-            errors
-        )
-    )
+                st.exception(e)
