@@ -4,7 +4,6 @@ from supabase import create_client, Client
 
 @st.cache_resource
 def get_supabase() -> Client:
-    # Hem ortam değişkenlerini hem de Streamlit Secrets'ı kontrol et
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     
@@ -23,20 +22,21 @@ def add_clothing_item(image_url, category, color, description):
     supabase = get_supabase()
     if not supabase: return None
     
-    data, count = supabase.table('clothes').insert({
+    res = supabase.table('clothes').insert({
         "image_url": image_url,
         "category": category,
         "color": color,
         "description": description
     }).execute()
-    return data
+    
+    return getattr(res, 'data', res)
 
 def get_all_clothes():
     supabase = get_supabase()
     if not supabase: return []
     
-    response = supabase.table('clothes').select("*").order('added_date', desc=True).execute()
-    return response.data[1] if len(response.data) == 2 else response.data
+    res = supabase.table('clothes').select("*").order('added_date', desc=True).execute()
+    return getattr(res, 'data', [])
 
 def upload_image(file_bytes, file_name):
     supabase = get_supabase()
@@ -44,13 +44,15 @@ def upload_image(file_bytes, file_name):
     
     bucket_name = "wardrobe_images"
     
-    # Dosyayı yükle
-    res = supabase.storage.from_(bucket_name).upload(
-        file_name,
-        file_bytes,
-        {"content-type": "image/jpeg"}
-    )
-    
-    # Herkesin görebileceği (Public) internet linkini al
-    public_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
-    return public_url
+    try:
+        supabase.storage.from_(bucket_name).upload(
+            file_name,
+            file_bytes,
+            {"content-type": "image/jpeg"}
+        )
+        
+        public_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
+        return public_url
+    except Exception as e:
+        print(f"Yükleme hatası: {e}")
+        return None
