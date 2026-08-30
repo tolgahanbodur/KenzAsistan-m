@@ -1,30 +1,47 @@
 import os
 import uuid
-import streamlit as st
+from datetime import datetime, timezone
 
+import streamlit as st
 from supabase import create_client, Client
 
+
+# ============================================================
+# SUPABASE CLIENT
+# ============================================================
 
 @st.cache_resource
 def get_supabase() -> Client:
 
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
+    url = os.environ.get(
+        "SUPABASE_URL"
+    )
+
+    key = os.environ.get(
+        "SUPABASE_KEY"
+    )
+
 
     if not url:
+
         url = st.secrets.get(
             "SUPABASE_URL",
             ""
         )
 
+
     if not key:
+
         key = st.secrets.get(
             "SUPABASE_KEY",
             ""
         )
 
+
     if not url or not key:
+
         return None
+
 
     return create_client(
         url,
@@ -45,24 +62,29 @@ def add_clothing_item(
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return None
 
-    res = supabase.table(
-        "clothes"
-    ).insert({
 
-        "image_url": image_url,
-        "category": category,
-        "color": color,
-        "description": description
+    result = (
+        supabase
+        .table("clothes")
+        .insert(
+            {
+                "image_url": image_url,
+                "category": category,
+                "color": color,
+                "description": description,
+            }
+        )
+        .execute()
+    )
 
-    }).execute()
 
     return getattr(
-        res,
+        result,
         "data",
-        res
+        []
     )
 
 
@@ -70,54 +92,59 @@ def get_all_clothes():
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return []
 
-    res = supabase.table(
-        "clothes"
-    ).select(
-        "*"
-    ).order(
-        "added_date",
-        desc=True
-    ).execute()
+
+    result = (
+        supabase
+        .table("clothes")
+        .select("*")
+        .order(
+            "added_date",
+            desc=True
+        )
+        .execute()
+    )
+
 
     return getattr(
-        res,
+        result,
         "data",
         []
     )
 
 
+# ============================================================
+# STORAGE
+# ============================================================
+
 def upload_image(
     file_bytes,
-    file_name
+    file_name,
+    bucket_name="wardrobe_images"
 ):
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return None
 
-    bucket_name = "wardrobe_images"
 
     try:
 
+        # Aynı dosya varsa üzerine yaz
         supabase.storage.from_(
             bucket_name
         ).upload(
-
             file_name,
             file_bytes,
-
             {
-                "content-type":
-                    "image/jpeg",
-                "upsert":
-                    "true"
+                "content-type": "image/jpeg",
+                "upsert": "true",
             }
-
         )
+
 
         public_url = (
             supabase
@@ -128,12 +155,15 @@ def upload_image(
             )
         )
 
+
         return public_url
+
 
     except Exception as e:
 
         print(
-            f"Yükleme hatası: {e}"
+            "Storage upload error:",
+            repr(e)
         )
 
         return None
@@ -145,11 +175,17 @@ def upload_image(
 
 def get_client_id():
 
+    if "client_id" in st.query_params:
+
+        return st.query_params["client_id"]
+
+
     if "client_id" not in st.session_state:
 
         st.session_state.client_id = str(
             uuid.uuid4()
         )
+
 
     return st.session_state.client_id
 
@@ -159,27 +195,33 @@ def get_client_id():
 # ============================================================
 
 def create_conversation(
+    client_id=None,
     title="Yeni sohbet"
 ):
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return None
 
-    client_id = get_client_id()
 
-    result = supabase.table(
-        "conversations"
-    ).insert({
+    if client_id is None:
 
-        "client_id":
-            client_id,
+        client_id = get_client_id()
 
-        "title":
-            title
 
-    }).execute()
+    result = (
+        supabase
+        .table("conversations")
+        .insert(
+            {
+                "client_id": client_id,
+                "title": title,
+            }
+        )
+        .execute()
+    )
+
 
     data = getattr(
         result,
@@ -187,45 +229,66 @@ def create_conversation(
         []
     )
 
+
     if not data:
         return None
+
 
     return data[0]
 
 
 # ============================================================
-# SOHBETLERİ GETİR
+# SOHBETLER
 # ============================================================
 
-def get_conversations():
+def get_conversations(
+    client_id=None
+):
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return []
 
-    client_id = get_client_id()
 
-    result = (
-        supabase
-        .table("conversations")
-        .select("*")
-        .eq(
-            "client_id",
-            client_id
-        )
-        .order(
-            "updated_at",
-            desc=True
-        )
-        .execute()
-    )
+    if client_id is None:
 
-    return getattr(
-        result,
-        "data",
-        []
-    )
+        client_id = get_client_id()
+
+
+    try:
+
+        result = (
+            supabase
+            .table("conversations")
+            .select("*")
+            .eq(
+                "client_id",
+                client_id
+            )
+            .order(
+                "updated_at",
+                desc=True
+            )
+            .execute()
+        )
+
+
+        return getattr(
+            result,
+            "data",
+            []
+        ) or []
+
+
+    except Exception as e:
+
+        print(
+            "GET CONVERSATIONS ERROR:",
+            repr(e)
+        )
+
+        return []
 
 
 # ============================================================
@@ -233,41 +296,66 @@ def get_conversations():
 # ============================================================
 
 def get_conversation(
-    conversation_id
+    conversation_id,
+    client_id=None
 ):
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return None
 
-    client_id = get_client_id()
 
-    result = (
-        supabase
-        .table("conversations")
-        .select("*")
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "client_id",
-            client_id
-        )
-        .maybe_single()
-        .execute()
-    )
+    if client_id is None:
 
-    return getattr(
-        result,
-        "data",
-        None
-    )
+        client_id = get_client_id()
+
+
+    try:
+
+        result = (
+            supabase
+            .table("conversations")
+            .select("*")
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "client_id",
+                client_id
+            )
+            .execute()
+        )
+
+
+        data = getattr(
+            result,
+            "data",
+            []
+        )
+
+
+        if data:
+
+            return data[0]
+
+
+        return None
+
+
+    except Exception as e:
+
+        print(
+            "GET CONVERSATION ERROR:",
+            repr(e)
+        )
+
+        return None
 
 
 # ============================================================
-# MESAJLARI GETİR
+# MESAJLAR
 # ============================================================
 
 def get_messages(
@@ -276,29 +364,43 @@ def get_messages(
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return []
 
-    result = (
-        supabase
-        .table("messages")
-        .select("*")
-        .eq(
-            "conversation_id",
-            conversation_id
-        )
-        .order(
-            "created_at",
-            desc=False
-        )
-        .execute()
-    )
 
-    return getattr(
-        result,
-        "data",
-        []
-    )
+    try:
+
+        result = (
+            supabase
+            .table("messages")
+            .select("*")
+            .eq(
+                "conversation_id",
+                conversation_id
+            )
+            .order(
+                "created_at",
+                desc=False
+            )
+            .execute()
+        )
+
+
+        return getattr(
+            result,
+            "data",
+            []
+        ) or []
+
+
+    except Exception as e:
+
+        print(
+            "GET MESSAGES ERROR:",
+            repr(e)
+        )
+
+        return []
 
 
 # ============================================================
@@ -315,53 +417,68 @@ def add_message(
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return None
 
-    result = supabase.table(
-        "messages"
-    ).insert({
 
-        "conversation_id":
-            conversation_id,
-
-        "role":
-            role,
-
-        "content":
-            content,
-
-        "image_url":
-            image_url,
-
-        "provider":
-            provider
-
-    }).execute()
-
-    # Sohbetin updated_at değerini güncelle
     try:
 
+        result = (
+            supabase
+            .table("messages")
+            .insert(
+                {
+                    "conversation_id":
+                        conversation_id,
+
+                    "role":
+                        role,
+
+                    "content":
+                        content,
+
+                    "image_url":
+                        image_url,
+
+                    "provider":
+                        provider,
+                }
+            )
+            .execute()
+        )
+
+
+        # Sohbet tarihini güncelle
         supabase.table(
             "conversations"
-        ).update({
-
-            "updated_at":
-                "now()"
-
-        }).eq(
+        ).update(
+            {
+                "updated_at":
+                    datetime.now(
+                        timezone.utc
+                    ).isoformat()
+            }
+        ).eq(
             "id",
             conversation_id
         ).execute()
 
-    except Exception:
-        pass
 
-    return getattr(
-        result,
-        "data",
-        result
-    )
+        return getattr(
+            result,
+            "data",
+            []
+        )
+
+
+    except Exception as e:
+
+        print(
+            "ADD MESSAGE ERROR:",
+            repr(e)
+        )
+
+        return None
 
 
 # ============================================================
@@ -369,65 +486,102 @@ def add_message(
 # ============================================================
 
 def delete_conversation(
-    conversation_id
+    conversation_id,
+    client_id=None
 ):
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return False
 
-    client_id = get_client_id()
 
-    result = (
-        supabase
-        .table("conversations")
-        .delete()
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "client_id",
-            client_id
-        )
-        .execute()
-    )
+    if client_id is None:
 
-    return True
+        client_id = get_client_id()
+
+
+    try:
+
+        (
+            supabase
+            .table("conversations")
+            .delete()
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "client_id",
+                client_id
+            )
+            .execute()
+        )
+
+
+        return True
+
+
+    except Exception as e:
+
+        print(
+            "DELETE CONVERSATION ERROR:",
+            repr(e)
+        )
+
+        return False
 
 
 # ============================================================
-# SOHBET BAŞLIĞINI GÜNCELLE
+# BAŞLIK GÜNCELLE
 # ============================================================
 
 def update_conversation_title(
     conversation_id,
+    client_id,
     title
 ):
 
     supabase = get_supabase()
 
-    if not supabase:
+    if supabase is None:
         return False
 
-    client_id = get_client_id()
 
-    (
-        supabase
-        .table("conversations")
-        .update({
-            "title": title
-        })
-        .eq(
-            "id",
-            conversation_id
-        )
-        .eq(
-            "client_id",
-            client_id
-        )
-        .execute()
-    )
+    try:
 
-    return True
+        (
+            supabase
+            .table("conversations")
+            .update(
+                {
+                    "title": title,
+                    "updated_at":
+                        datetime.now(
+                            timezone.utc
+                        ).isoformat(),
+                }
+            )
+            .eq(
+                "id",
+                conversation_id
+            )
+            .eq(
+                "client_id",
+                client_id
+            )
+            .execute()
+        )
+
+
+        return True
+
+
+    except Exception as e:
+
+        print(
+            "UPDATE TITLE ERROR:",
+            repr(e)
+        )
+
+        return False
