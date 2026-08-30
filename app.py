@@ -1,211 +1,648 @@
-Using uv pip install.
+import streamlit as st
+import uuid
 
-Using Python 3.14.7 environment at /home/adminuser/venv
+from ai_router import ask_ai
+from supabase_client import (
+    get_client_id,
+    get_conversations,
+    create_conversation,
+    get_messages,
+    add_message,
+    delete_conversation,
+    update_conversation_title,
+)
 
-Resolved 73 packages in 922ms
 
-Prepared 73 packages in 2.22s
+# ============================================================
+# PAGE
+# ============================================================
 
-Installed 73 packages in 119ms
+st.set_page_config(
+    page_title="Kenz Asistan",
+    page_icon="🤖",
+    layout="wide",
+)
 
- + altair==6.2.2
 
- + annotated-types==0.8.0
+# ============================================================
+# CLIENT ID
+# ============================================================
 
- + anyio==4.14.2
+client_id = get_client_id()
 
- + attrs==26.1.0
 
- + blinker==1.9.0
+# ============================================================
+# SESSION
+# ============================================================
 
- + certifi==2026.7.22[2026-08-30 14:26:16.013568] 
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = None
 
- + cffi==2.1.1
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
- + charset-normalizer==3.5.1
+if "initialized" not in st.session_state:
+    st.session_state.initialized = False
 
- + click==8.5.0
+if "last_provider" not in st.session_state:
+    st.session_state.last_provider = None
 
- + cryptography==50.0.1
 
- + deprecation==2.1.0
+# ============================================================
+# YENİ SOHBET
+# ============================================================
 
- + distro==1.9.0
+def new_chat():
 
- + google-auth==2.57.0
+    conversation = create_conversation(
+        client_id=client_id,
+        title="Yeni sohbet",
+    )
 
- + [2026-08-30 14:26:16.013813] google-genai==2.20.0
+    if not conversation:
+        return False
 
- + h11==0.16.0
+    st.session_state.conversation_id = conversation["id"]
 
- + h2==4.4.1
+    st.session_state.messages = []
 
- + hpack==4.2.0
+    return True
 
- + httpcore==1.0.9
 
- + httpcore2==2.12.0
+# ============================================================
+# SOHBET YÜKLE
+# ============================================================
 
- + httptools==0.8.0
+def load_chat(conversation_id):
 
- + httpx==0.28.1
+    messages = get_messages(
+        conversation_id
+    )
 
- + httpx2==2.12.0
+    st.session_state.conversation_id = (
+        conversation_id
+    )
 
- + hyperframe==6.1.0
+    st.session_state.messages = messages
 
- + idna==3.19
 
- + itsdangerous==2.2.0[2026-08-30 14:26:16.014073] 
+# ============================================================
+# İLK AÇILIŞ
+# ============================================================
 
- + jinja2==3.1.6
+if not st.session_state.initialized:
 
- + jiter==0.16.0
+    try:
 
- + jsonschema==4.26.0
+        conversations = get_conversations(
+            client_id
+        )
 
- + jsonschema-specifications==2025.9.1
+        if conversations:
 
- [2026-08-30 14:26:16.014265] + markupsafe==3.0.3
+            load_chat(
+                conversations[0]["id"]
+            )
 
- + multidict==6.7.1
+        else:
 
- + narwhals==2.25.0
+            new_chat()
 
- + numpy==2.5.2
+        st.session_state.initialized = True
 
- + openai==[2026-08-30 14:26:16.014488] 3.6.0
+    except Exception as e:
 
- + packaging==26.3
+        st.error(
+            "Kenz başlatılırken hata oluştu."
+        )
 
- + pandas==3.0.5
+        st.exception(e)
 
- + pillow==12.3.0
+        st.stop()
 
- + postgrest==2.31.0
 
- +[2026-08-30 14:26:16.014690]  propcache==0.5.2
+# ============================================================
+# SIDEBAR
+# ============================================================
 
- + protobuf==7.36.0
+with st.sidebar:
 
- + pyarrow==25.0.1
+    st.title("🤖 Kenz")
 
- + pyasn1==0.6.4
+    st.caption(
+        "Kişisel yapay zeka asistanın"
+    )
 
- +[2026-08-30 14:26:16.014867]  pyasn1-modules==0.4.2
+    st.divider()
 
- + pycparser==3.0
 
- + pydantic==2.13.5
+    # --------------------------------------------------------
+    # YENİ SOHBET
+    # --------------------------------------------------------
 
- + pydantic-core==2.46.5
+    if st.button(
+        "＋ Yeni sohbet",
+        use_container_width=True,
+    ):
 
- +[2026-08-30 14:26:16.015007]  pydeck==0.9.3
+        try:
 
- + pyjwt==2.13.0
+            if new_chat():
+                st.rerun()
 
- + python-dateutil==2.9.0.post0
+        except Exception as e:
 
- + [2026-08-30 14:26:16.015206] python-multipart==0.0.32
+            st.error(
+                "Yeni sohbet oluşturulamadı."
+            )
 
- + realtime==2.31.0
+            st.exception(e)
 
- + referencing==0.37.0
 
- + requests==[2026-08-30 14:26:16.015338] 2.34.2
+    st.divider()
 
- + rpds-py==2026.6.3
 
- + six==1.17.0
+    # --------------------------------------------------------
+    # SOHBET GEÇMİŞİ
+    # --------------------------------------------------------
 
- + sniffio==1.3.1
+    st.subheader(
+        "💬 Sohbetler"
+    )
 
- + starlette==1.6.0
 
- [2026-08-30 14:26:16.015454] + storage3==2.31.0
+    try:
 
- + streamlit==1.62.0
+        conversations = get_conversations(
+            client_id
+        )
 
- + strenum==0.4.15
+    except Exception as e:
 
- + supabase==2.31.0[2026-08-30 14:26:16.015558] 
+        conversations = []
 
- + supabase-auth==2.31.0
+        st.error(
+            "Sohbetler alınamadı."
+        )
 
- + supabase-functions==2.31.0
+        st.exception(e)
 
- + tenacity==9.1.4
 
- + [2026-08-30 14:26:16.015658] toml==0.10.2
+    if not conversations:
 
- + truststore==0.10.4
+        st.caption(
+            "Henüz sohbet yok."
+        )
 
- + typing-extensions==4.16.0
 
- + typing-inspection==0.4.4
+    for conversation in conversations:
 
- +[2026-08-30 14:26:16.015760]  urllib3==2.7.0
+        conversation_id = (
+            conversation["id"]
+        )
 
- + uvicorn==0.52.4
+        title = (
+            conversation.get("title")
+            or "Yeni sohbet"
+        )
 
- + watchdog==6.0.0
 
- + websockets[2026-08-30 14:26:16.015873] ==15.0.1
+        if len(title) > 30:
 
- + yarl==1.24.5
+            title = (
+                title[:30]
+                + "..."
+            )
 
-Checking if Streamlit is installed
 
-Found Streamlit version 1.62.0 in the environment
+        if st.button(
+            "💬 " + title,
+            key=conversation_id,
+            use_container_width=True,
+        ):
 
-Detected pyarrow 25.0.1 (known segfault, apache/arrow#50471). Replacing with pyarrow<25.
+            load_chat(
+                conversation_id
+            )
 
-Using uv pip install.
+            st.rerun()
 
-Using Python 3.14.7 environment at /home/adminuser/venv
 
-Resolved 1 package in 38ms
+    st.divider()
 
-Prepared 1 package in 712ms
 
-Uninstalled 1 package in 16ms
+    # --------------------------------------------------------
+    # PROVIDER
+    # --------------------------------------------------------
 
-Installed 1 package in 21ms
+    if st.session_state.last_provider:
 
- - pyarrow==[2026-08-30 14:26:19.428297] 25.0.1
+        st.caption(
+            "Son kullanılan model"
+        )
 
- + pyarrow==24.0.0
+        st.write(
+            st.session_state.last_provider
+        )
 
-Installing rich for an improved exception logging
 
-Using uv pip install.
+    st.divider()
 
-Using Python 3.14.7 environment at /home/adminuser/venv
 
-Resolved 4 packages in 125ms
+    # --------------------------------------------------------
+    # SİL
+    # --------------------------------------------------------
 
-Prepared 4 packages in 115ms
+    if st.session_state.conversation_id:
 
-Installed 4 packages in 20ms
+        if st.button(
+            "🗑️ Bu sohbeti sil",
+            use_container_width=True,
+        ):
 
- +[2026-08-30 14:26:20.714288]  markdown-it-py==4.2.0
+            try:
 
- + mdurl==0.1.2
+                delete_conversation(
+                    st.session_state.conversation_id,
+                    client_id,
+                )
 
- + pygments==2.21.0
+                st.session_state.conversation_id = None
 
- + rich==15.0.0
+                st.session_state.messages = []
 
+                conversations = get_conversations(
+                    client_id
+                )
 
-────────────────────────────────────────────────────────────────────────────────────────
+                if conversations:
 
+                    load_chat(
+                        conversations[0]["id"]
+                    )
 
-[14:26:21] 🐍 Python dependencies were installed from /mount/src/kenzasistan-m/requirements.txt using uv.
+                else:
 
-Check if streamlit is installed
+                    new_chat()
 
-Streamlit is already installed
+                st.rerun()
 
-[14:26:22] 📦 Processed dependencies!
+            except Exception as e:
 
-2026-08-30 14:26:24.130 Uvicorn server started on :::8501
+                st.error(
+                    "Sohbet silinemedi."
+                )
+
+                st.exception(e)
+
+
+# ============================================================
+# ANA EKRAN
+# ============================================================
+
+st.title(
+    "🤖 Kenz Asistan"
+)
+
+st.caption(
+    "Senin kişisel yapay zeka asistanın"
+)
+
+
+# ============================================================
+# MESAJLAR
+# ============================================================
+
+for message in st.session_state.messages:
+
+    role = message.get(
+        "role",
+        "assistant",
+    )
+
+    content = message.get(
+        "content",
+        "",
+    )
+
+    if not content:
+        continue
+
+    with st.chat_message(
+        role
+    ):
+
+        st.markdown(
+            content
+        )
+
+
+# ============================================================
+# BOŞ SOHBET
+# ============================================================
+
+if not st.session_state.messages:
+
+    with st.chat_message(
+        "assistant"
+    ):
+
+        st.markdown(
+            """
+### Merhaba 👋
+
+Ben **Kenz**.
+
+Benimle normal şekilde sohbet edebilirsin.
+
+Örneğin:
+
+**"Bugün ne giysem?"**
+
+**"Bana bir film öner."**
+
+**"Python öğrenmeye nereden başlamalıyım?"**
+
+**"Bu kombin nasıl?"**
+
+Mesajını aşağıdaki kutuya yaz.
+"""
+        )
+
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+user_message = st.chat_input(
+    "Kenz'e mesaj yaz..."
+)
+
+
+# ============================================================
+# MESAJ GELDİ
+# ============================================================
+
+if user_message:
+
+    user_message = user_message.strip()
+
+
+    if not user_message:
+
+        st.warning(
+            "Lütfen bir mesaj yaz."
+        )
+
+        st.stop()
+
+
+    # ========================================================
+    # USER MESSAGE
+    # ========================================================
+
+    with st.chat_message(
+        "user"
+    ):
+
+        st.markdown(
+            user_message
+        )
+
+
+    # ========================================================
+    # GEÇMİŞİ HAZIRLA
+    # ========================================================
+
+    history = []
+
+
+    for message in st.session_state.messages:
+
+        content = message.get(
+            "content",
+            "",
+        )
+
+        if not content:
+            continue
+
+
+        history.append(
+            {
+                "role": message.get(
+                    "role"
+                ),
+
+                "text": content,
+            }
+        )
+
+
+    # ========================================================
+    # PROMPT
+    # ========================================================
+
+    system_prompt = """
+Sen Kenz adında kişisel bir yapay zeka asistanısın.
+
+Kullanıcıyla Türkçe konuş.
+
+Samimi, doğal, akıllı ve yardımcı ol.
+
+Normal sohbet edebilirsin.
+
+Soruyu doğrudan cevapla.
+
+Gereksiz yere uzun cevap verme.
+
+Kullanıcı detay isterse ayrıntılı cevap ver.
+"""
+
+
+    history_text = ""
+
+
+    for item in history:
+
+        if item["role"] == "user":
+
+            history_text += (
+                "\nKullanıcı: "
+                + item["text"]
+            )
+
+        elif item["role"] == "assistant":
+
+            history_text += (
+                "\nKenz: "
+                + item["text"]
+            )
+
+
+    prompt = (
+        system_prompt
+        + "\n\nÖNCEKİ KONUŞMA:"
+        + history_text
+        + "\n\nYENİ MESAJ:"
+        + user_message
+    )
+
+
+    # ========================================================
+    # AI
+    # ========================================================
+
+    with st.chat_message(
+        "assistant"
+    ):
+
+        with st.spinner(
+            "Kenz düşünüyor..."
+        ):
+
+            try:
+
+                answer = ask_ai(
+                    prompt=prompt,
+                    image=None,
+                )
+
+
+                st.markdown(
+                    answer
+                )
+
+
+                provider = (
+                    st.session_state
+                    .get(
+                        "last_provider"
+                    )
+                )
+
+
+                # ------------------------------------------------
+                # USER SAVE
+                # ------------------------------------------------
+
+                add_message(
+                    conversation_id=(
+                        st.session_state
+                        .conversation_id
+                    ),
+
+                    role="user",
+
+                    content=user_message,
+
+                    image_url=None,
+
+                    provider=None,
+                )
+
+
+                # ------------------------------------------------
+                # AI SAVE
+                # ------------------------------------------------
+
+                add_message(
+                    conversation_id=(
+                        st.session_state
+                        .conversation_id
+                    ),
+
+                    role="assistant",
+
+                    content=answer,
+
+                    image_url=None,
+
+                    provider=provider,
+                )
+
+
+                # ------------------------------------------------
+                # SESSION
+                # ------------------------------------------------
+
+                st.session_state.messages.append(
+                    {
+                        "role":
+                            "user",
+
+                        "content":
+                            user_message,
+                    }
+                )
+
+
+                st.session_state.messages.append(
+                    {
+                        "role":
+                            "assistant",
+
+                        "content":
+                            answer,
+
+                        "provider":
+                            provider,
+                    }
+                )
+
+
+                # ------------------------------------------------
+                # BAŞLIK
+                # ------------------------------------------------
+
+                conversations = (
+                    get_conversations(
+                        client_id
+                    )
+                )
+
+
+                current = None
+
+
+                for conversation in conversations:
+
+                    if (
+                        conversation["id"]
+                        ==
+                        st.session_state
+                        .conversation_id
+                    ):
+
+                        current = conversation
+
+                        break
+
+
+                if current:
+
+                    if (
+                        current.get(
+                            "title"
+                        )
+                        ==
+                        "Yeni sohbet"
+                    ):
+
+                        update_conversation_title(
+                            st.session_state
+                            .conversation_id,
+
+                            client_id,
+
+                            user_message[:40],
+                        )
+
+
+            except Exception as e:
+
+                st.error(
+                    "Kenz cevap oluşturamadı."
+                )
+
+                st.exception(e)
