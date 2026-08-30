@@ -4,12 +4,6 @@ import streamlit as st
 from ai_router import ask_ai
 
 from supabase_client import (
-    get_current_user,
-    get_profile,
-    sign_up,
-    sign_in,
-    sign_out,
-
     create_conversation,
     get_conversations,
     get_messages,
@@ -41,55 +35,51 @@ st.set_page_config(
 
 
 # ============================================================
-# CUSTOM CSS
+# CSS
 # ============================================================
 
 st.markdown(
     """
 <style>
 
-    /* Ana alan */
-    .block-container {
-        max-width: 1100px;
-        padding-top: 2rem;
-        padding-bottom: 7rem;
-    }
+.block-container {
+    max-width: 1100px;
+    padding-top: 2rem;
+    padding-bottom: 7rem;
+}
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        min-width: 280px;
-        max-width: 320px;
-    }
+section[data-testid="stSidebar"] {
+    min-width: 280px;
+    max-width: 320px;
+}
 
-    /* Chat input */
-    div[data-testid="stChatInput"] {
-        bottom: 15px;
-    }
+div[data-testid="stChatInput"] {
+    bottom: 15px;
+}
 
-    /* Dosya butonu */
-    div[data-testid="stFileUploader"] {
-        margin-top: 0;
-    }
+.kenz-title {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+}
 
-    /* Başlık */
-    .kenz-title {
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 0.2rem;
-    }
+.kenz-subtitle {
+    color: #777;
+    margin-bottom: 2rem;
+}
 
-    .kenz-subtitle {
-        color: #777;
-        margin-bottom: 2rem;
-    }
+.wardrobe-card {
+    border: 1px solid rgba(128,128,128,.25);
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 12px;
+}
 
-    /* Gardırop kartı */
-    .wardrobe-card {
-        border: 1px solid rgba(128,128,128,.25);
-        border-radius: 12px;
-        padding: 10px;
-        margin-bottom: 12px;
-    }
+.memory-box {
+    border: 1px solid rgba(128,128,128,.2);
+    border-radius: 12px;
+    padding: 15px;
+}
 
 </style>
 """,
@@ -103,6 +93,10 @@ st.markdown(
 
 defaults = {
 
+    # Kenz'in kullanıcıyı tanıması için
+    # tarayıcı oturumu boyunca kullanılacak ID
+    "session_id": str(uuid.uuid4()),
+
     "conversation_id": None,
 
     "messages": [],
@@ -115,15 +109,8 @@ defaults = {
 
     "show_settings": False,
 
-    "auth_mode": "login",
-
-    "selected_file": None,
-
-    "selected_file_name": None,
-
-    "selected_file_type": None,
-
 }
+
 
 for key, value in defaults.items():
 
@@ -133,269 +120,25 @@ for key, value in defaults.items():
 
 
 # ============================================================
-# CURRENT USER
-# ============================================================
-
-try:
-
-    current_user = get_current_user()
-
-except Exception:
-
-    current_user = None
-
-
-# ============================================================
-# AUTH SCREEN
-# ============================================================
-
-if not current_user:
-
-    st.markdown(
-        """
-        <div style="text-align:center; margin-top:80px;">
-            <div style="font-size:55px;">🤖</div>
-            <div class="kenz-title">Kenz</div>
-            <div class="kenz-subtitle">
-                Kişisel yapay zeka asistanın
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    tab_login, tab_register = st.tabs(
-        [
-            "🔐 Giriş yap",
-            "✨ Üye ol",
-        ]
-    )
-
-    # ========================================================
-    # LOGIN
-    # ========================================================
-
-    with tab_login:
-
-        st.subheader("Tekrar hoş geldin 👋")
-
-        login_email = st.text_input(
-            "E-posta",
-            key="login_email",
-        )
-
-        login_password = st.text_input(
-            "Şifre",
-            type="password",
-            key="login_password",
-        )
-
-        if st.button(
-            "Giriş yap",
-            type="primary",
-            use_container_width=True,
-        ):
-
-            if not login_email or not login_password:
-
-                st.warning(
-                    "E-posta ve şifre gir."
-                )
-
-            else:
-
-                try:
-
-                    sign_in(
-                        login_email,
-                        login_password,
-                    )
-
-                    st.success(
-                        "Giriş başarılı."
-                    )
-
-                    st.rerun()
-
-                except Exception as e:
-
-                    st.error(
-                        str(e)
-                    )
-
-
-    # ========================================================
-    # REGISTER
-    # ========================================================
-
-    with tab_register:
-
-        st.subheader("Kenz'e katıl 🚀")
-
-        register_name = st.text_input(
-            "Adın",
-            key="register_name",
-        )
-
-        register_email = st.text_input(
-            "E-posta",
-            key="register_email",
-        )
-
-        register_password = st.text_input(
-            "Şifre",
-            type="password",
-            key="register_password",
-        )
-
-        register_password2 = st.text_input(
-            "Şifre tekrar",
-            type="password",
-            key="register_password2",
-        )
-
-        if st.button(
-            "Üye ol",
-            type="primary",
-            use_container_width=True,
-        ):
-
-            if not register_email:
-
-                st.warning(
-                    "E-posta adresi gir."
-                )
-
-            elif not register_password:
-
-                st.warning(
-                    "Şifre gir."
-                )
-
-            elif len(register_password) < 6:
-
-                st.warning(
-                    "Şifre en az 6 karakter olmalı."
-                )
-
-            elif register_password != register_password2:
-
-                st.warning(
-                    "Şifreler aynı değil."
-                )
-
-            else:
-
-                try:
-
-                    response = sign_up(
-                        register_email,
-                        register_password,
-                        register_name,
-                    )
-
-                    session = getattr(
-                        response,
-                        "session",
-                        None,
-                    )
-
-                    if session:
-
-                        st.success(
-                            "Hesabın oluşturuldu!"
-                        )
-
-                        st.rerun()
-
-                    else:
-
-                        st.success(
-                            "Kayıt başarılı. "
-                            "E-posta adresini doğrulaman gerekebilir."
-                        )
-
-                except Exception as e:
-
-                    st.error(
-                        str(e)
-                    )
-
-    st.stop()
-
-
-# ============================================================
-# USER INFORMATION
-# ============================================================
-
-user_id = str(
-    current_user.id
-)
-
-user_email = (
-    getattr(
-        current_user,
-        "email",
-        None
-    )
-    or ""
-)
-
-
-# ============================================================
-# PROFILE
-# ============================================================
-
-try:
-
-    profile = get_profile()
-
-except Exception:
-
-    profile = None
-
-
-user_name = ""
-
-if profile:
-
-    user_name = (
-        profile.get("name")
-        or ""
-    )
-
-
-if not user_name:
-
-    metadata = getattr(
-        current_user,
-        "user_metadata",
-        {}
-    ) or {}
-
-    user_name = (
-        metadata.get("name")
-        or "Kullanıcı"
-    )
-
-
-# ============================================================
-# CONVERSATION FUNCTIONS
+# CONVERSATION
 # ============================================================
 
 def start_new_conversation():
 
     try:
 
-        conversation = (
-            create_conversation(
-                title="Yeni sohbet"
-            )
+        conversation = create_conversation(
+            title="Yeni sohbet"
         )
 
         if not conversation:
 
+            st.error(
+                "Yeni sohbet oluşturulamadı."
+            )
+
             return False
+
 
         st.session_state.conversation_id = (
             conversation["id"]
@@ -404,6 +147,7 @@ def start_new_conversation():
         st.session_state.messages = []
 
         return True
+
 
     except Exception as e:
 
@@ -415,6 +159,10 @@ def start_new_conversation():
 
         return False
 
+
+# ============================================================
+# LOAD CONVERSATION
+# ============================================================
 
 def load_conversation(
     conversation_id
@@ -436,6 +184,7 @@ def load_conversation(
 
         return True
 
+
     except Exception as e:
 
         st.error(
@@ -455,9 +204,8 @@ if not st.session_state.initialized:
 
     try:
 
-        conversations = (
-            get_conversations()
-        )
+        conversations = get_conversations()
+
 
         if conversations:
 
@@ -469,7 +217,9 @@ if not st.session_state.initialized:
 
             start_new_conversation()
 
+
         st.session_state.initialized = True
+
 
     except Exception as e:
 
@@ -506,6 +256,11 @@ with st.sidebar:
     )
 
 
+    st.caption(
+        "Kişisel yapay zeka asistanın"
+    )
+
+
     # ========================================================
     # NEW CHAT
     # ========================================================
@@ -532,11 +287,10 @@ with st.sidebar:
         "SOHBETLER"
     )
 
+
     try:
 
-        conversations = (
-            get_conversations()
-        )
+        conversations = get_conversations()
 
     except Exception:
 
@@ -549,6 +303,7 @@ with st.sidebar:
             "Henüz sohbet yok."
         )
 
+
     else:
 
         for conversation in conversations:
@@ -558,11 +313,10 @@ with st.sidebar:
             )
 
             title = (
-                conversation.get(
-                    "title"
-                )
+                conversation.get("title")
                 or "Yeni sohbet"
             )
+
 
             if len(title) > 28:
 
@@ -574,13 +328,18 @@ with st.sidebar:
 
             if st.button(
                 "💬 " + title,
-                key="chat_" + conversation_id,
+                key="chat_" + str(
+                    conversation_id
+                ),
                 use_container_width=True,
             ):
 
                 load_conversation(
                     conversation_id
                 )
+
+                st.session_state.show_wardrobe = False
+                st.session_state.show_settings = False
 
                 st.rerun()
 
@@ -628,42 +387,20 @@ with st.sidebar:
 
 
     # ========================================================
-    # USER
+    # SESSION INFO
     # ========================================================
 
     st.caption(
-        "HESAP"
-    )
-
-    st.write(
-        "👤 " + user_name
+        "KENZ OTURUMU"
     )
 
     st.caption(
-        user_email
+        "Bu sürümde hesap sistemi yok."
     )
 
-
-    if st.button(
-        "🚪 Çıkış yap",
-        use_container_width=True,
-    ):
-
-        try:
-
-            sign_out()
-
-            st.session_state.clear()
-
-            st.rerun()
-
-        except Exception as e:
-
-            st.error(
-                "Çıkış yapılamadı."
-            )
-
-            st.exception(e)
+    st.caption(
+        "Kenz doğrudan kullanılabilir."
+    )
 
 
 # ============================================================
@@ -679,6 +416,7 @@ if st.session_state.show_wardrobe:
     st.caption(
         "Kenz'in kombin önerilerinde kullanacağı kıyafetlerin."
     )
+
 
     try:
 
@@ -712,13 +450,14 @@ if st.session_state.show_wardrobe:
 
         st.markdown(
             """
-            Bir fotoğraf gönderip örneğin:
+Bir fotoğraf gönderip:
 
-            **"Bunu gardırobuma ekle."**
+**"Bunu gardırobuma ekle."**
 
-            diyebilirsin.
-            """
+diyebilirsin.
+"""
         )
+
 
     else:
 
@@ -731,6 +470,7 @@ if st.session_state.show_wardrobe:
                 index % 3
             ]
 
+
             with column:
 
                 st.markdown(
@@ -738,11 +478,11 @@ if st.session_state.show_wardrobe:
                     unsafe_allow_html=True
                 )
 
-                image_url = (
-                    item.get(
-                        "image_url"
-                    )
+
+                image_url = item.get(
+                    "image_url"
                 )
+
 
                 if image_url:
 
@@ -753,14 +493,11 @@ if st.session_state.show_wardrobe:
 
 
                 name = (
-                    item.get(
-                        "name"
-                    )
-                    or item.get(
-                        "category"
-                    )
+                    item.get("name")
+                    or item.get("category")
                     or "Kıyafet"
                 )
+
 
                 st.markdown(
                     "**"
@@ -799,6 +536,15 @@ if st.session_state.show_wardrobe:
                     )
 
 
+                if item.get("description"):
+
+                    st.caption(
+                        str(
+                            item["description"]
+                        )
+                    )
+
+
                 if st.button(
                     "🗑️ Sil",
                     key=
@@ -821,6 +567,7 @@ if st.session_state.show_wardrobe:
 
                         st.rerun()
 
+
                     except Exception as e:
 
                         st.error(
@@ -840,7 +587,7 @@ if st.session_state.show_wardrobe:
 
 
 # ============================================================
-# SETTINGS PAGE
+# SETTINGS
 # ============================================================
 
 if st.session_state.show_settings:
@@ -849,61 +596,25 @@ if st.session_state.show_settings:
         "⚙️ Ayarlar"
     )
 
-    st.subheader(
-        "Profil"
-    )
-
-    name = st.text_input(
-        "Ad",
-        value=user_name,
-    )
-
-    email = st.text_input(
-        "E-posta",
-        value=user_email,
-        disabled=True,
-    )
-
-
-    if st.button(
-        "Profili kaydet",
-        type="primary",
-    ):
-
-        try:
-
-            from supabase_client import update_profile
-
-            update_profile(
-                name=name
-            )
-
-            st.success(
-                "Profil güncellendi."
-            )
-
-        except Exception as e:
-
-            st.error(
-                "Profil güncellenemedi."
-            )
-
-            st.exception(e)
-
-
-    st.divider()
 
     st.subheader(
         "🧠 Kenz hafızası"
     )
 
+
+    st.caption(
+        "Kenz hakkında verdiğin bilgileri burada görebilir "
+        "ve düzenleyebilirsin."
+    )
+
+
     current_preferences = ""
+
 
     try:
 
-        preferences = (
-            get_preferences()
-        )
+        preferences = get_preferences()
+
 
         if preferences:
 
@@ -914,26 +625,34 @@ if st.session_state.show_settings:
                 or ""
             )
 
+
     except Exception:
 
         current_preferences = ""
 
 
     preference_text = st.text_area(
-        "Kenz'in senin hakkında hatırlamasını istediğin bilgiler",
+
+        "Kenz'in hafızası",
+
         value=current_preferences,
-        height=180,
+
+        height=250,
+
         placeholder=(
             "Örneğin:\n"
             "Old Money ve Smart Casual tarzını seviyorum.\n"
-            "Yazın ince ve sade kıyafetleri tercih ederim."
+            "Yazın ince ve sade kıyafetler tercih ederim.\n"
+            "Kahve seviyorum.\n"
+            "Kenz bana Türkçe cevap versin."
         ),
     )
 
 
     if st.button(
-        "Hafızayı kaydet",
+        "💾 Hafızayı kaydet",
         type="primary",
+        use_container_width=True,
     ):
 
         try:
@@ -946,6 +665,7 @@ if st.session_state.show_settings:
                 "Hafıza kaydedildi."
             )
 
+
         except Exception as e:
 
             st.error(
@@ -955,17 +675,31 @@ if st.session_state.show_settings:
             st.exception(e)
 
 
+    st.divider()
+
+
+    st.subheader(
+        "ℹ️ Sistem"
+    )
+
+    st.info(
+        "Bu Kenz sürümünde hesap sistemi bulunmuyor. "
+        "Uygulama açıldığında otomatik bir oturum oluşturulur."
+    )
+
+
     st.stop()
 
 
 # ============================================================
-# MAIN CHAT HEADER
+# MAIN HEADER
 # ============================================================
 
 st.markdown(
     '<div class="kenz-title">🤖 Kenz</div>',
     unsafe_allow_html=True
 )
+
 
 st.markdown(
     '<div class="kenz-subtitle">'
@@ -988,6 +722,7 @@ for message in st.session_state.messages:
         )
     )
 
+
     content = (
         message.get(
             "content"
@@ -995,11 +730,13 @@ for message in st.session_state.messages:
         or ""
     )
 
+
     file_url = (
         message.get(
             "file_url"
         )
     )
+
 
     file_type = (
         message.get(
@@ -1013,9 +750,7 @@ for message in st.session_state.messages:
         role
     ):
 
-        # ----------------------------------------------------
         # IMAGE
-        # ----------------------------------------------------
 
         if (
             file_url
@@ -1030,9 +765,7 @@ for message in st.session_state.messages:
             )
 
 
-        # ----------------------------------------------------
         # VIDEO
-        # ----------------------------------------------------
 
         elif (
             file_url
@@ -1046,9 +779,7 @@ for message in st.session_state.messages:
             )
 
 
-        # ----------------------------------------------------
         # AUDIO
-        # ----------------------------------------------------
 
         elif (
             file_url
@@ -1079,25 +810,23 @@ if not st.session_state.messages:
         "assistant"
     ):
 
-        greeting_name = (
-            user_name
-            if user_name
-            else "orada"
-        )
-
         st.markdown(
-            f"""
-### Merhaba {greeting_name} 👋
+            """
+### Merhaba 👋
 
 Ben **Kenz**.
 
-Seninle normal şekilde sohbet edebilir,
-fotoğraf, video ve ses dosyalarını analiz edebilirim.
+Seninle normal şekilde sohbet edebilirim.
 
-Ayrıca gardırobunu öğrenip sana kombin
-önerileri hazırlayabilirim.
+Fotoğraf, video ve ses dosyalarını analiz edebilirim.
+
+Ayrıca verdiğin bilgileri hafızamda tutabilir,
+önceki sohbetlerini hatırlayabilir ve
+gardırobunu öğrenebilirim.
 
 Örneğin:
+
+💬 **"Bugün ne yapmalıyım?"**
 
 📸 **"Bu kombin nasıl?"**
 
@@ -1110,6 +839,8 @@ Ayrıca gardırobunu öğrenip sana kombin
 🧥 **"Bu gömleği gardırobuma ekle."**
 
 ✨ **"Gardırobumdan yazlık bir kombin yap."**
+
+🧠 **"Benim hakkımda bunu hatırla: ..."**
 """
         )
 
@@ -1118,11 +849,10 @@ Ayrıca gardırobunu öğrenip sana kombin
 # FILE UPLOADER
 # ============================================================
 
-# ChatGPT'deki mesaj kutusunun hemen üstünde
-# küçük dosya alanı.
-
 uploaded_file = st.file_uploader(
+
     "📎",
+
     type=[
         "jpg",
         "jpeg",
@@ -1139,8 +869,11 @@ uploaded_file = st.file_uploader(
         "aac",
         "ogg",
     ],
+
     accept_multiple_files=False,
+
     key="chat_file",
+
     label_visibility="collapsed",
 )
 
@@ -1156,11 +889,13 @@ if uploaded_file:
         or ""
     )
 
+
     st.caption(
         "📎 "
         + uploaded_file.name
         + " — Mesajını yazıp Enter'a bas."
     )
+
 
     if file_type.startswith(
         "image/"
@@ -1171,6 +906,7 @@ if uploaded_file:
             width=350,
         )
 
+
     elif file_type.startswith(
         "video/"
     ):
@@ -1178,6 +914,7 @@ if uploaded_file:
         st.video(
             uploaded_file
         )
+
 
     elif file_type.startswith(
         "audio/"
@@ -1222,11 +959,8 @@ if user_message:
     # ========================================================
 
     file_bytes = None
-
     file_url = None
-
     file_name = None
-
     file_type = None
 
 
@@ -1246,6 +980,7 @@ if user_message:
                 uploaded_file.type
                 or "application/octet-stream"
             )
+
 
         except Exception as e:
 
@@ -1270,12 +1005,13 @@ if user_message:
 
 
     # ========================================================
-    # UPLOAD FILE
+    # FILE UPLOAD
     # ========================================================
 
     if file_bytes:
 
         extension = ""
+
 
         if (
             file_name
@@ -1303,11 +1039,16 @@ if user_message:
         try:
 
             file_url = upload_file(
+
                 file_bytes,
+
                 storage_name,
+
                 file_type,
+
                 "chat_files",
             )
+
 
         except Exception as e:
 
@@ -1319,7 +1060,7 @@ if user_message:
 
 
     # ========================================================
-    # DISPLAY USER MESSAGE
+    # SHOW USER MESSAGE
     # ========================================================
 
     with st.chat_message(
@@ -1337,6 +1078,7 @@ if user_message:
                     use_container_width=True
                 )
 
+
             elif file_type.startswith(
                 "video/"
             ):
@@ -1344,6 +1086,7 @@ if user_message:
                 st.video(
                     file_bytes
                 )
+
 
             elif file_type.startswith(
                 "audio/"
@@ -1360,7 +1103,7 @@ if user_message:
 
 
     # ========================================================
-    # HISTORY
+    # CHAT HISTORY
     # ========================================================
 
     history_text = ""
@@ -1381,7 +1124,6 @@ if user_message:
 
 
         if not content:
-
             continue
 
 
@@ -1391,6 +1133,7 @@ if user_message:
                 "\nKullanıcı: "
                 + content
             )
+
 
         elif role == "assistant":
 
@@ -1406,86 +1149,74 @@ if user_message:
 
     wardrobe_text = ""
 
+
     try:
 
-        clothes = (
-            get_all_clothes()
-        )
+        clothes = get_all_clothes()
 
 
-        if clothes:
+        for item in clothes:
 
-            for item in clothes:
+            wardrobe_text += (
+                "\n- "
+                + str(
+                    item.get(
+                        "name"
+                    )
+                    or "Kıyafet"
+                )
+            )
+
+
+            if item.get("category"):
 
                 wardrobe_text += (
-                    "\n- "
+                    " | kategori: "
                     + str(
-                        item.get(
-                            "name"
-                        )
-                        or "Kıyafet"
+                        item["category"]
                     )
                 )
 
 
-                if item.get(
-                    "category"
-                ):
+            if item.get("color"):
 
-                    wardrobe_text += (
-                        " | kategori: "
-                        + str(
-                            item["category"]
-                        )
+                wardrobe_text += (
+                    " | renk: "
+                    + str(
+                        item["color"]
                     )
+                )
 
 
-                if item.get(
-                    "color"
-                ):
+            if item.get("style"):
 
-                    wardrobe_text += (
-                        " | renk: "
-                        + str(
-                            item["color"]
-                        )
+                wardrobe_text += (
+                    " | stil: "
+                    + str(
+                        item["style"]
                     )
+                )
 
 
-                if item.get(
-                    "style"
-                ):
+            if item.get("season"):
 
-                    wardrobe_text += (
-                        " | stil: "
-                        + str(
-                            item["style"]
-                        )
+                wardrobe_text += (
+                    " | sezon: "
+                    + str(
+                        item["season"]
                     )
+                )
 
 
-                if item.get(
-                    "season"
-                ):
+            if item.get("description"):
 
-                    wardrobe_text += (
-                        " | sezon: "
-                        + str(
-                            item["season"]
-                        )
+                wardrobe_text += (
+                    " | açıklama: "
+                    + str(
+                        item["description"]
                     )
+                )
 
-
-                if item.get(
-                    "description"
-                ):
-
-                    wardrobe_text += (
-                        " | açıklama: "
-                        + str(
-                            item["description"]
-                        )
-                    )
 
     except Exception:
 
@@ -1498,11 +1229,11 @@ if user_message:
 
     preference_text = ""
 
+
     try:
 
-        preferences = (
-            get_preferences()
-        )
+        preferences = get_preferences()
+
 
         if preferences:
 
@@ -1512,6 +1243,7 @@ if user_message:
                 )
                 or ""
             )
+
 
     except Exception:
 
@@ -1530,72 +1262,59 @@ Kullanıcıyla Türkçe konuş.
 
 Samimi, doğal, akıllı ve yardımcı ol.
 
-============================================================
-MEDYA
-============================================================
+Kullanıcının sorusunu mümkün olduğunca doğrudan çöz.
 
-Kullanıcı sana metin, fotoğraf, video veya ses
-gönderebilir.
-
-Fotoğraf gönderilirse görüntüyü gerçekten analiz et.
-
-Video gönderilirse içeriğini analiz et.
-
-Ses gönderilirse mümkün olduğunda içeriğini analiz et,
-konuşmayı anlamaya ve özetlemeye çalış.
-
-Medyayı görmediğin veya analiz edemediğin halde
-görmüş gibi davranma.
-
-============================================================
-GARDIROP
-============================================================
-
-Kullanıcının gardırobunda bulunan gerçek parçalar
-aşağıda listelenmiştir.
-
-Kullanıcı:
-
-"Bugün ne giysem?"
-
-"Gardırobumdan kombin yap."
-
-"Bu pantolonla ne giyilir?"
-
-"Yazlık kombin yap."
-
-gibi bir şey sorarsa öncelikle aşağıdaki gerçek
-gardırop parçalarını kullan.
-
-Gardıropta olmayan bir parçayı kullanıcıda varmış
-gibi gösterme.
-
-Kullanıcı bir fotoğraf gönderip:
-
-"Bunu gardırobuma ekle."
-
-derse fotoğrafı analiz et ve uygun kıyafet bilgilerini
-belirlemeye çalış.
+Bilmediğin bir şeyi biliyormuş gibi gösterme.
 
 ============================================================
 KULLANICI HAFIZASI
 ============================================================
 
-Kullanıcı hakkında daha önce kaydedilmiş bilgiler:
+Aşağıdaki bilgiler kullanıcı hakkında daha önce
+kaydedilmiş bilgilerdir.
+
+Bunları gerektiğinde cevaplarında kullan.
 
 """ + preference_text + """
 
 ============================================================
-GARDIROP PARÇALARI
+GARDIROP
 ============================================================
 
+Kullanıcının gerçek gardırop parçaları:
+
 """ + wardrobe_text + """
+
+Gardıropta olmayan bir parçayı kullanıcıda varmış
+gibi gösterme.
+
+Kullanıcı gardırobuna yeni bir kıyafet eklemek
+istediğinde, gönderilen fotoğrafı analiz etmeye çalış.
 
 ============================================================
 ÖNCEKİ SOHBET
 ============================================================
 
-""" + history_text
+""" + history_text + """
+
+============================================================
+GENEL DAVRANIŞ
+============================================================
+
+Kullanıcı senden bir şey istediğinde yardımcı ol.
+
+Gereksiz şekilde "bunu yapamam" deme.
+
+Eğer bir işlemi gerçekleştirmek için araç veya
+dış sistem gerekiyorsa bunu açıkça belirt.
+
+Fotoğraf, video veya ses dosyasını gerçekten
+analiz edemiyorsan görmüş gibi davranma.
+
+Kullanıcı hakkında önemli ve uzun süre geçerli
+bir bilgi söylediğinde, bunu hafıza sistemine
+kaydetmek gerektiğini değerlendir.
+"""
 
 
     # ========================================================
@@ -1604,7 +1323,8 @@ GARDIROP PARÇALARI
 
     prompt = (
         system_prompt
-        + "\n\n==================================================\n"
+        + "\n\n"
+        + "==================================================\n"
         + "YENİ KULLANICI MESAJI\n"
         + "==================================================\n"
         + user_message
@@ -1636,6 +1356,7 @@ GARDIROP PARÇALARI
             provider=None,
         )
 
+
     except Exception as e:
 
         st.warning(
@@ -1659,13 +1380,17 @@ GARDIROP PARÇALARI
 
             try:
 
-                # ------------------------------------------------
-                # AI'YA DOSYAYI GÖNDER
-                # ------------------------------------------------
+                # ============================================
+                # AI FILE
+                # ============================================
+
+                ai_file = None
+
 
                 if file_bytes:
 
                     ai_file = {
+
                         "bytes":
                             file_bytes,
 
@@ -1676,13 +1401,15 @@ GARDIROP PARÇALARI
                             file_type,
                     }
 
-                else:
 
-                    ai_file = None
-
+                # ============================================
+                # ASK AI
+                # ============================================
 
                 answer = ask_ai(
+
                     prompt=prompt,
+
                     uploaded_file=ai_file,
                 )
 
@@ -1694,18 +1421,18 @@ GARDIROP PARÇALARI
                 )
 
 
-                # ------------------------------------------------
-                # ANSWER
-                # ------------------------------------------------
+                # ============================================
+                # SHOW ANSWER
+                # ============================================
 
                 st.markdown(
                     answer
                 )
 
 
-                # ------------------------------------------------
-                # SAVE AI MESSAGE
-                # ------------------------------------------------
+                # ============================================
+                # SAVE ANSWER
+                # ============================================
 
                 try:
 
@@ -1728,6 +1455,7 @@ GARDIROP PARÇALARI
                         provider=provider,
                     )
 
+
                 except Exception as e:
 
                     st.warning(
@@ -1737,9 +1465,9 @@ GARDIROP PARÇALARI
                     st.exception(e)
 
 
-                # ------------------------------------------------
-                # SESSION
-                # ------------------------------------------------
+                # ============================================
+                # SESSION HISTORY
+                # ============================================
 
                 st.session_state.messages.append(
                     {
@@ -1789,15 +1517,16 @@ GARDIROP PARÇALARI
                 )
 
 
-                # ------------------------------------------------
+                # ============================================
                 # CONVERSATION TITLE
-                # ------------------------------------------------
+                # ============================================
 
                 try:
 
                     conversations = (
                         get_conversations()
                     )
+
 
                     current = None
 
@@ -1819,9 +1548,7 @@ GARDIROP PARÇALARI
                     if current:
 
                         if (
-                            current.get(
-                                "title"
-                            )
+                            current.get("title")
                             == "Yeni sohbet"
                         ):
 
@@ -1840,16 +1567,29 @@ GARDIROP PARÇALARI
                                 title,
                             )
 
+
                 except Exception:
 
                     pass
 
 
-                # ------------------------------------------------
-                # CLEAR SELECTED FILE
-                # ------------------------------------------------
+                # ============================================
+                # CLEAR FILE
+                # ============================================
 
-                st.session_state.selected_file = None
+                try:
+
+                    del st.session_state[
+                        "chat_file"
+                    ]
+
+                except Exception:
+
+                    pass
+
+
+                st.rerun()
+
 
             except Exception as e:
 
@@ -1865,6 +1605,7 @@ GARDIROP PARÇALARI
 # ============================================================
 
 st.divider()
+
 
 st.caption(
     "Kenz • Kişisel AI • Metin + Görsel + Video + Ses"
