@@ -1,9 +1,9 @@
 import base64
 import io
-import time
 
 import streamlit as st
 import requests
+
 from PIL import Image
 from google import genai
 from openai import OpenAI
@@ -38,21 +38,19 @@ openai_client = None
 
 
 if GEMINI_API_KEY:
-
     gemini_client = genai.Client(
         api_key=GEMINI_API_KEY
     )
 
 
 if OPENAI_API_KEY:
-
     openai_client = OpenAI(
         api_key=OPENAI_API_KEY
     )
 
 
 # ============================================================
-# GÖRSELİ HAZIRLA
+# GÖRSEL HAZIRLAMA
 # ============================================================
 
 def prepare_image(image):
@@ -60,23 +58,34 @@ def prepare_image(image):
     if image is None:
         return None
 
-    if isinstance(image, bytes):
+    try:
 
-        return Image.open(
-            io.BytesIO(image)
-        )
+        if isinstance(image, bytes):
 
-    if hasattr(image, "getvalue"):
-
-        return Image.open(
-            io.BytesIO(
-                image.getvalue()
+            return Image.open(
+                io.BytesIO(image)
             )
+
+        if hasattr(image, "getvalue"):
+
+            return Image.open(
+                io.BytesIO(
+                    image.getvalue()
+                )
+            )
+
+        if isinstance(
+            image,
+            Image.Image
+        ):
+
+            return image
+
+    except Exception as e:
+
+        raise Exception(
+            f"Görsel işlenemedi: {e}"
         )
-
-    if isinstance(image, Image.Image):
-
-        return image
 
     return None
 
@@ -100,6 +109,7 @@ def ask_gemini(
     contents = []
 
 
+    # Görsel varsa ekle
     if image is not None:
 
         img = prepare_image(
@@ -113,17 +123,27 @@ def ask_gemini(
             )
 
 
+    # Metni ekle
     contents.append(
         prompt
     )
 
 
+    # Güncel Gemini Flash modeli
     response = gemini_client.models.generate_content(
 
-        model="gemini-3.7-flash",
+        model="gemini-2.5-flash",
 
         contents=contents
+
     )
+
+
+    if not response:
+
+        raise Exception(
+            "Gemini cevap vermedi."
+        )
 
 
     if not response.text:
@@ -155,12 +175,19 @@ def ask_openai(
     content = [
 
         {
-            "type": "input_text",
-            "text": prompt
+            "type":
+                "input_text",
+
+            "text":
+                prompt
         }
 
     ]
 
+
+    # --------------------------------------------------------
+    # GÖRSEL
+    # --------------------------------------------------------
 
     if image is not None:
 
@@ -183,29 +210,36 @@ def ask_openai(
         else:
 
             raise Exception(
-                "Görsel formatı desteklenmiyor."
+                "OpenAI görsel formatı desteklenmiyor."
             )
 
 
-        encoded = base64.b64encode(
-            image_bytes
-        ).decode(
-            "utf-8"
+        encoded_image = (
+            base64.b64encode(
+                image_bytes
+            ).decode(
+                "utf-8"
+            )
         )
 
 
-        content.append(
+        content.append({
 
-            {
-                "type": "input_image",
-                "image_url": (
+            "type":
+                "input_image",
+
+            "image_url":
+                (
                     "data:image/jpeg;base64,"
-                    + encoded
+                    + encoded_image
                 )
-            }
 
-        )
+        })
 
+
+    # --------------------------------------------------------
+    # OPENAI İSTEĞİ
+    # --------------------------------------------------------
 
     response = openai_client.responses.create(
 
@@ -214,22 +248,38 @@ def ask_openai(
         input=[
 
             {
-                "role": "user",
-                "content": content
+
+                "role":
+                    "user",
+
+                "content":
+                    content
+
             }
 
         ]
+
     )
 
 
-    if not response.output_text:
+    if not response:
+
+        raise Exception(
+            "OpenAI cevap vermedi."
+        )
+
+
+    answer = response.output_text
+
+
+    if not answer:
 
         raise Exception(
             "OpenAI boş cevap verdi."
         )
 
 
-    return response.output_text
+    return answer
 
 
 # ============================================================
@@ -251,12 +301,21 @@ def ask_openrouter(
     content = [
 
         {
-            "type": "text",
-            "text": prompt
+
+            "type":
+                "text",
+
+            "text":
+                prompt
+
         }
 
     ]
 
+
+    # --------------------------------------------------------
+    # GÖRSEL
+    # --------------------------------------------------------
 
     if image is not None:
 
@@ -279,32 +338,40 @@ def ask_openrouter(
         else:
 
             raise Exception(
-                "Görsel formatı desteklenmiyor."
+                "OpenRouter görsel formatı desteklenmiyor."
             )
 
 
-        encoded = base64.b64encode(
-            image_bytes
-        ).decode(
-            "utf-8"
+        encoded_image = (
+            base64.b64encode(
+                image_bytes
+            ).decode(
+                "utf-8"
+            )
         )
 
 
-        content.append(
+        content.append({
 
-            {
-                "type": "image_url",
-                "image_url": {
+            "type":
+                "image_url",
 
-                    "url":
+            "image_url": {
+
+                "url":
+                    (
                         "data:image/jpeg;base64,"
-                        + encoded
+                        + encoded_image
+                    )
 
-                }
             }
 
-        )
+        })
 
+
+    # --------------------------------------------------------
+    # OPENROUTER
+    # --------------------------------------------------------
 
     response = requests.post(
 
@@ -313,13 +380,20 @@ def ask_openrouter(
         headers={
 
             "Authorization":
-                f"Bearer {OPENROUTER_API_KEY}",
+                (
+                    "Bearer "
+                    + OPENROUTER_API_KEY
+                ),
 
             "Content-Type":
                 "application/json",
 
             "HTTP-Referer":
-                "https://kenzasistan-m-juobhsjgs4wqdjv7ez2nq9.streamlit.app",
+                (
+                    "https://kenzasistan-m-"
+                    "juobhsjgs4wqdjv7ez2nq9"
+                    ".streamlit.app"
+                ),
 
             "X-Title":
                 "Kenz Asistan"
@@ -334,11 +408,13 @@ def ask_openrouter(
             "messages": [
 
                 {
+
                     "role":
                         "user",
 
                     "content":
                         content
+
                 }
 
             ]
@@ -346,6 +422,7 @@ def ask_openrouter(
         },
 
         timeout=90
+
     )
 
 
@@ -353,9 +430,12 @@ def ask_openrouter(
 
         raise Exception(
 
-            "OpenRouter "
-            f"HTTP {response.status_code}: "
-            f"{response.text}"
+            "OpenRouter HTTP "
+            + str(
+                response.status_code
+            )
+            + ": "
+            + response.text
 
         )
 
@@ -376,7 +456,7 @@ def ask_openrouter(
     except Exception:
 
         raise Exception(
-            "OpenRouter geçerli cevap döndürmedi."
+            "OpenRouter cevap formatı geçersiz."
         )
 
 
@@ -391,44 +471,52 @@ def ask_openrouter(
 
 
 # ============================================================
-# MODEL HATASI MI?
+# HATA KONTROLÜ
 # ============================================================
 
-def should_fallback(error):
+def should_fallback(
+    error
+):
 
-    error_text = str(
+    text = str(
         error
     ).lower()
 
 
     fallback_errors = [
 
-        "503",
+        "400",
+        "401",
+        "402",
+        "403",
+        "408",
+        "409",
         "429",
         "500",
         "502",
+        "503",
         "504",
 
-        "unavailable",
-        "overloaded",
+        "api key",
+        "invalid",
+        "quota",
         "rate limit",
         "rate_limit",
-        "quota",
-        "resource exhausted",
         "too many requests",
-        "temporarily unavailable",
+        "resource exhausted",
+        "unavailable",
+        "overloaded",
+        "timeout",
+        "timed out",
         "model not found",
-        "not found",
-
-        "api key not valid",
-        "invalid api key",
+        "not found"
 
     ]
 
 
-    for text in fallback_errors:
+    for error_text in fallback_errors:
 
-        if text in error_text:
+        if error_text in text:
 
             return True
 
@@ -437,7 +525,7 @@ def should_fallback(error):
 
 
 # ============================================================
-# ANA ROUTER
+# ANA AI ROUTER
 # ============================================================
 
 def ask_ai(
@@ -449,17 +537,26 @@ def ask_ai(
 
 
     # ========================================================
-    # 1 — GEMINI
+    # 1. GEMINI
     # ========================================================
 
     try:
 
-        result = ask_gemini(
-            prompt,
-            image
+        answer = ask_gemini(
+
+            prompt=prompt,
+
+            image=image
+
         )
 
-        return result
+
+        st.session_state.last_provider = (
+            "Gemini"
+        )
+
+
+        return answer
 
 
     except Exception as e:
@@ -469,23 +566,28 @@ def ask_ai(
             + str(e)
         )
 
-        if not should_fallback(e):
-
-            pass
-
 
     # ========================================================
-    # 2 — OPENAI
+    # 2. OPENAI
     # ========================================================
 
     try:
 
-        result = ask_openai(
-            prompt,
-            image
+        answer = ask_openai(
+
+            prompt=prompt,
+
+            image=image
+
         )
 
-        return result
+
+        st.session_state.last_provider = (
+            "OpenAI"
+        )
+
+
+        return answer
 
 
     except Exception as e:
@@ -497,17 +599,26 @@ def ask_ai(
 
 
     # ========================================================
-    # 3 — OPENROUTER
+    # 3. OPENROUTER
     # ========================================================
 
     try:
 
-        result = ask_openrouter(
-            prompt,
-            image
+        answer = ask_openrouter(
+
+            prompt=prompt,
+
+            image=image
+
         )
 
-        return result
+
+        st.session_state.last_provider = (
+            "OpenRouter"
+        )
+
+
+        return answer
 
 
     except Exception as e:
@@ -522,9 +633,14 @@ def ask_ai(
     # HİÇBİR MODEL ÇALIŞMADI
     # ========================================================
 
-    raise Exception(
-
+    error_message = (
         "Tüm AI sağlayıcıları başarısız oldu.\n\n"
-        + "\n".join(errors)
+        + "\n".join(
+            errors
+        )
+    )
 
+
+    raise Exception(
+        error_message
     )
