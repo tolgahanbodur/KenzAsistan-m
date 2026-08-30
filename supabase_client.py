@@ -39,77 +39,6 @@ def get_supabase() -> Client:
 
 
 # ============================================================
-# AUTH UYUMLULUK FONKSİYONLARI
-# ============================================================
-
-def get_current_user():
-    """
-    Yeni sistemde giriş sistemi yok.
-    Eski app.py koduyla uyumluluk için None döndürür.
-    """
-
-    return True
-
-
-def get_session():
-    """
-    Yeni sistemde session kullanılmıyor.
-    """
-
-    return None
-
-
-def sign_up(
-    email,
-    password,
-    name=""
-):
-    raise RuntimeError(
-        "Kenz artık giriş/kayıt sistemi kullanmıyor."
-    )
-
-
-def sign_in(
-    email,
-    password
-):
-    raise RuntimeError(
-        "Kenz artık giriş/kayıt sistemi kullanmıyor."
-    )
-
-
-def sign_out():
-
-    return True
-
-
-def get_user_id():
-
-    return None
-
-
-# ============================================================
-# PROFILE
-# ============================================================
-
-def get_profile():
-
-    return {
-        "name": "Kullanıcı",
-        "email": "",
-        "avatar_url": None
-    }
-
-
-def update_profile(
-    name=None,
-    avatar_url=None
-):
-
-    return True
-
-
-# ============================================================
 # CONVERSATIONS
 # ============================================================
 
@@ -119,16 +48,16 @@ def create_conversation(
 
     supabase = get_supabase()
 
-    data = {
-        "title": title
-    }
-
     try:
 
         result = (
             supabase
             .table("conversations")
-            .insert(data)
+            .insert(
+                {
+                    "title": title
+                }
+            )
             .execute()
         )
 
@@ -141,11 +70,12 @@ def create_conversation(
             or []
         )
 
-        return (
-            rows[0]
-            if rows
-            else None
-        )
+        if not rows:
+            raise RuntimeError(
+                "Sohbet oluşturulamadı."
+            )
+
+        return rows[0]
 
     except Exception as e:
 
@@ -258,6 +188,7 @@ def update_conversation_title(
             .update(
                 {
                     "title": title,
+
                     "updated_at":
                         datetime.now(
                             timezone.utc
@@ -411,7 +342,10 @@ def add_message(
             .execute()
         )
 
-        # Sohbetin güncellenme zamanını değiştir
+        # ----------------------------------------------------
+        # SOHBET GÜNCELLEME ZAMANI
+        # ----------------------------------------------------
+
         (
             supabase
             .table("conversations")
@@ -447,7 +381,7 @@ def add_message(
 
 
 # ============================================================
-# STORAGE - GENERIC FILE
+# STORAGE
 # ============================================================
 
 def upload_file(
@@ -653,7 +587,7 @@ def delete_clothing_item(
 
 
 # ============================================================
-# USER PREFERENCES / MEMORY
+# USER MEMORY
 # ============================================================
 
 def get_preferences():
@@ -693,7 +627,7 @@ def get_preferences():
 
 
 # ============================================================
-# SAVE PREFERENCES
+# SAVE MEMORY
 # ============================================================
 
 def save_preferences(
@@ -721,9 +655,7 @@ def save_preferences(
 
             result = (
                 supabase
-                .table(
-                    "user_preferences"
-                )
+                .table("user_preferences")
                 .update(data)
                 .eq(
                     "id",
@@ -736,9 +668,7 @@ def save_preferences(
 
             result = (
                 supabase
-                .table(
-                    "user_preferences"
-                )
+                .table("user_preferences")
                 .insert(data)
                 .execute()
             )
