@@ -1,5 +1,4 @@
 import os
-import uuid
 from datetime import datetime, timezone
 
 import streamlit as st
@@ -40,45 +39,64 @@ def get_supabase() -> Client:
 
 
 # ============================================================
-# LOCAL USER
-# ============================================================
-
-# Login sistemi kaldırıldığı için artık Supabase Auth
-# kullanıcı ID'sine bağlı çalışmıyoruz.
-#
-# Kenz ilk açıldığında cihaz için kalıcı bir UUID oluşturulur.
-# Bu UUID Supabase'deki verilerin sahibini belirler.
-
-def get_user_id():
-
-    if "kenz_user_id" not in st.session_state:
-
-        st.session_state.kenz_user_id = str(
-            uuid.uuid4()
-        )
-
-    return st.session_state.kenz_user_id
-
-
-# ============================================================
-# USER INFORMATION
+# AUTH UYUMLULUK FONKSİYONLARI
 # ============================================================
 
 def get_current_user():
+    """
+    Yeni sistemde giriş sistemi yok.
+    Eski app.py koduyla uyumluluk için None döndürür.
+    """
 
-    return {
-        "id": get_user_id(),
-        "email": None,
-        "name": "Kullanıcı"
-    }
+    return True
 
+
+def get_session():
+    """
+    Yeni sistemde session kullanılmıyor.
+    """
+
+    return None
+
+
+def sign_up(
+    email,
+    password,
+    name=""
+):
+    raise RuntimeError(
+        "Kenz artık giriş/kayıt sistemi kullanmıyor."
+    )
+
+
+def sign_in(
+    email,
+    password
+):
+    raise RuntimeError(
+        "Kenz artık giriş/kayıt sistemi kullanmıyor."
+    )
+
+
+def sign_out():
+
+    return True
+
+
+def get_user_id():
+
+    return None
+
+
+# ============================================================
+# PROFILE
+# ============================================================
 
 def get_profile():
 
     return {
-        "id": get_user_id(),
-        "email": None,
         "name": "Kullanıcı",
+        "email": "",
         "avatar_url": None
     }
 
@@ -88,11 +106,7 @@ def update_profile(
     avatar_url=None
 ):
 
-    return {
-        "id": get_user_id(),
-        "name": name or "Kullanıcı",
-        "avatar_url": avatar_url
-    }
+    return True
 
 
 # ============================================================
@@ -105,10 +119,7 @@ def create_conversation(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     data = {
-        "user_id": user_id,
         "title": title
     }
 
@@ -151,19 +162,13 @@ def get_conversations():
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     try:
 
         result = (
             supabase
             .table("conversations")
             .select(
-                "id,user_id,title,created_at,updated_at"
-            )
-            .eq(
-                "user_id",
-                user_id
+                "id,title,created_at,updated_at"
             )
             .order(
                 "updated_at",
@@ -198,8 +203,6 @@ def get_conversation(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     try:
 
         result = (
@@ -209,10 +212,6 @@ def get_conversation(
             .eq(
                 "id",
                 conversation_id
-            )
-            .eq(
-                "user_id",
-                user_id
             )
             .limit(1)
             .execute()
@@ -233,9 +232,11 @@ def get_conversation(
             else None
         )
 
-    except Exception:
+    except Exception as e:
 
-        return None
+        raise RuntimeError(
+            f"Sohbet alınamadı: {e}"
+        )
 
 
 # ============================================================
@@ -248,8 +249,6 @@ def update_conversation_title(
 ):
 
     supabase = get_supabase()
-
-    user_id = get_user_id()
 
     try:
 
@@ -269,10 +268,6 @@ def update_conversation_title(
                 "id",
                 conversation_id
             )
-            .eq(
-                "user_id",
-                user_id
-            )
             .execute()
         )
 
@@ -288,7 +283,7 @@ def update_conversation_title(
     except Exception as e:
 
         raise RuntimeError(
-            f"Sohbet güncellenemedi: {e}"
+            f"Sohbet başlığı güncellenemedi: {e}"
         )
 
 
@@ -302,8 +297,6 @@ def delete_conversation(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     try:
 
         (
@@ -314,18 +307,16 @@ def delete_conversation(
                 "id",
                 conversation_id
             )
-            .eq(
-                "user_id",
-                user_id
-            )
             .execute()
         )
 
         return True
 
-    except Exception:
+    except Exception as e:
 
-        return False
+        raise RuntimeError(
+            f"Sohbet silinemedi: {e}"
+        )
 
 
 # ============================================================
@@ -338,8 +329,6 @@ def get_messages(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     try:
 
         result = (
@@ -349,10 +338,6 @@ def get_messages(
             .eq(
                 "conversation_id",
                 conversation_id
-            )
-            .eq(
-                "user_id",
-                user_id
             )
             .order(
                 "created_at",
@@ -393,15 +378,10 @@ def add_message(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     data = {
 
         "conversation_id":
             conversation_id,
-
-        "user_id":
-            user_id,
 
         "role":
             role,
@@ -431,10 +411,7 @@ def add_message(
             .execute()
         )
 
-        # ----------------------------------------------------
-        # SOHBET ZAMANINI GÜNCELLE
-        # ----------------------------------------------------
-
+        # Sohbetin güncellenme zamanını değiştir
         (
             supabase
             .table("conversations")
@@ -449,10 +426,6 @@ def add_message(
             .eq(
                 "id",
                 conversation_id
-            )
-            .eq(
-                "user_id",
-                user_id
             )
             .execute()
         )
@@ -474,7 +447,7 @@ def add_message(
 
 
 # ============================================================
-# STORAGE
+# STORAGE - GENERIC FILE
 # ============================================================
 
 def upload_file(
@@ -486,16 +459,9 @@ def upload_file(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
-    # Her kullanıcı için ayrı klasör
-    storage_path = (
-        str(user_id)
-        + "/"
-        + file_name
-    )
-
     try:
+
+        storage_path = file_name
 
         supabase.storage.from_(
             bucket_name
@@ -553,7 +519,7 @@ def upload_image(
 
 
 # ============================================================
-# WARDROBE
+# GARDIROP
 # ============================================================
 
 def add_clothing_item(
@@ -568,12 +534,7 @@ def add_clothing_item(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     data = {
-
-        "user_id":
-            user_id,
 
         "image_url":
             image_url,
@@ -618,7 +579,7 @@ def add_clothing_item(
     except Exception as e:
 
         raise RuntimeError(
-            f"Kıyafet kaydedilemedi: {e}"
+            f"Kıyafet eklenemedi: {e}"
         )
 
 
@@ -630,18 +591,12 @@ def get_all_clothes():
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     try:
 
         result = (
             supabase
             .table("clothes")
             .select("*")
-            .eq(
-                "user_id",
-                user_id
-            )
             .order(
                 "added_date",
                 desc=True
@@ -675,8 +630,6 @@ def delete_clothing_item(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
     try:
 
         (
@@ -687,29 +640,25 @@ def delete_clothing_item(
                 "id",
                 clothing_id
             )
-            .eq(
-                "user_id",
-                user_id
-            )
             .execute()
         )
 
         return True
 
-    except Exception:
+    except Exception as e:
 
-        return False
+        raise RuntimeError(
+            f"Kıyafet silinemedi: {e}"
+        )
 
 
 # ============================================================
-# USER MEMORY
+# USER PREFERENCES / MEMORY
 # ============================================================
 
 def get_preferences():
 
     supabase = get_supabase()
-
-    user_id = get_user_id()
 
     try:
 
@@ -717,10 +666,6 @@ def get_preferences():
             supabase
             .table("user_preferences")
             .select("*")
-            .eq(
-                "user_id",
-                user_id
-            )
             .limit(1)
             .execute()
         )
@@ -740,13 +685,15 @@ def get_preferences():
             else None
         )
 
-    except Exception:
+    except Exception as e:
 
-        return None
+        raise RuntimeError(
+            f"Hafıza alınamadı: {e}"
+        )
 
 
 # ============================================================
-# SAVE MEMORY
+# SAVE PREFERENCES
 # ============================================================
 
 def save_preferences(
@@ -755,17 +702,20 @@ def save_preferences(
 
     supabase = get_supabase()
 
-    user_id = get_user_id()
-
-    now = (
-        datetime.now(
-            timezone.utc
-        ).isoformat()
-    )
-
-    existing = get_preferences()
-
     try:
+
+        existing = get_preferences()
+
+        data = {
+
+            "preferences":
+                preferences,
+
+            "updated_at":
+                datetime.now(
+                    timezone.utc
+                ).isoformat()
+        }
 
         if existing:
 
@@ -774,18 +724,10 @@ def save_preferences(
                 .table(
                     "user_preferences"
                 )
-                .update(
-                    {
-                        "preferences":
-                            preferences,
-
-                        "updated_at":
-                            now
-                    }
-                )
+                .update(data)
                 .eq(
-                    "user_id",
-                    user_id
+                    "id",
+                    existing["id"]
                 )
                 .execute()
             )
@@ -797,18 +739,7 @@ def save_preferences(
                 .table(
                     "user_preferences"
                 )
-                .insert(
-                    {
-                        "user_id":
-                            user_id,
-
-                        "preferences":
-                            preferences,
-
-                        "updated_at":
-                            now
-                    }
-                )
+                .insert(data)
                 .execute()
             )
 
@@ -826,110 +757,3 @@ def save_preferences(
         raise RuntimeError(
             f"Hafıza kaydedilemedi: {e}"
         )
-
-
-# ============================================================
-# AUTOMATIC MEMORY
-# ============================================================
-
-def append_memory(
-    memory_text
-):
-
-    if not memory_text:
-        return False
-
-    existing = get_preferences()
-
-    current = ""
-
-    if existing:
-
-        current = (
-            existing.get(
-                "preferences"
-            )
-            or ""
-        )
-
-    memory_text = str(
-        memory_text
-    ).strip()
-
-    if not memory_text:
-        return False
-
-    # Aynı bilgiyi tekrar tekrar ekleme
-    if memory_text.lower() in current.lower():
-
-        return True
-
-    if current.strip():
-
-        new_memory = (
-            current.rstrip()
-            + "\n"
-            + memory_text
-        )
-
-    else:
-
-        new_memory = memory_text
-
-    save_preferences(
-        new_memory
-    )
-
-    return True
-
-
-# ============================================================
-# GET ALL MEMORY
-# ============================================================
-
-def get_memory():
-
-    preferences = get_preferences()
-
-    if not preferences:
-
-        return ""
-
-    return (
-        preferences.get(
-            "preferences"
-        )
-        or ""
-    )
-
-
-# ============================================================
-# CLEAR MEMORY
-# ============================================================
-
-def clear_memory():
-
-    supabase = get_supabase()
-
-    user_id = get_user_id()
-
-    try:
-
-        (
-            supabase
-            .table(
-                "user_preferences"
-            )
-            .delete()
-            .eq(
-                "user_id",
-                user_id
-            )
-            .execute()
-        )
-
-        return True
-
-    except Exception:
-
-        return False
