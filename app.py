@@ -1,13 +1,13 @@
 import streamlit as st
 import os
 import time
+from PIL import Image
 import supabase_client as sc
 import gemini_helper as gh
 
 st.set_page_config(page_title="Gardırop Asistanı (Cloud)", page_icon="👗", layout="centered")
 st.title("☁️ Bulut Gardırop Asistanı")
 
-# API ve Bulut Bağlantısı Kontrolü
 def check_setup():
     is_setup = True
     missing = []
@@ -28,8 +28,8 @@ def check_setup():
 is_setup, missing_keys = check_setup()
 
 if not is_setup:
-    st.warning("Uygulamanın çalışması için gerekli bağlantı ayarları eksik.")
-    st.info("Kurulumu test etmek için aşağıdaki bilgileri girin:")
+    st.warning("Uygulamanın çalışması için ayarlar eksik.")
+    st.info("Kurulumu tamamlamak için aşağıdaki bilgileri girin:")
     
     gemini_key = st.text_input("GEMINI_API_KEY", type="password")
     supa_url = st.text_input("SUPABASE_URL")
@@ -40,14 +40,13 @@ if not is_setup:
             os.environ["GEMINI_API_KEY"] = gemini_key
             os.environ["SUPABASE_URL"] = supa_url
             os.environ["SUPABASE_KEY"] = supa_key
-            st.success("Ayarlar başarıyla kaydedildi! Lütfen bekleyin...")
+            st.success("Kaydedildi! Lütfen bekleyin...")
             time.sleep(1)
             st.rerun()
         else:
             st.error("Lütfen tüm alanları doldurun.")
     st.stop()
 
-# Uygulama Sekmeleri
 tab1, tab2, tab3 = st.tabs(["➕ Gardıroba Ekle", "👚 Gardırobum", "🌟 Kombin Puanla"])
 
 with tab1:
@@ -59,21 +58,19 @@ with tab1:
     img_data = photo if photo else upload
     
     if img_data is not None:
-        st.image(img_data, caption="Seçilen Kıyafet", use_column_width=True)
+        # GÜVENLİ GÖSTERİM: Doğrudan baytları veriyoruz ve use_container_width kullanıyoruz
+        img_bytes = img_data.getvalue()
+        st.image(img_bytes, caption="Seçilen Kıyafet", use_container_width=True)
+        
         if st.button("Kıyafeti Analiz Et ve Buluta Kaydet", type="primary", use_container_width=True):
             with st.spinner("🚀 Bulutta analiz ediliyor ve kaydediliyor..."):
-                img_bytes = img_data.getvalue()
                 timestamp = int(time.time())
                 filename = f"item_{timestamp}.jpg"
                 
                 try:
-                    # 1. Gemini Analizi
                     analysis = gh.analyze_clothing_item(img_bytes)
-                    
-                    # 2. Supabase Storage'a Yükle
                     public_url = sc.upload_image(img_bytes, filename)
                     
-                    # 3. Supabase Veritabanına Kaydet
                     if public_url:
                         sc.add_clothing_item(
                             image_url=public_url,
@@ -103,7 +100,7 @@ with tab2:
                 col = cols[i % 2]
                 with col:
                     st.container(border=True)
-                    st.image(item["image_url"], use_column_width=True)
+                    st.image(item["image_url"], use_container_width=True)
                     st.markdown(f"**{item.get('category')}** ({item.get('color')})")
                     st.caption(f"{item.get('description')}")
                     st.write("")
@@ -112,18 +109,19 @@ with tab2:
 
 with tab3:
     st.header("Bugünkü Kombinim")
-    st.write("Aynadan bugünkü kombininizin fotoğrafını çekin, yapay zeka stilistiniz değerlendirsin!")
+    st.write("Aynadan bugünkü kombininizin fotoğrafını çekin, stilistiniz değerlendirsin!")
     
     outfit_photo = st.camera_input("📷 Kombin Fotoğrafı Çek")
     outfit_upload = st.file_uploader("📂 Veya Galeriden Seç", type=["jpg", "jpeg", "png"], key="outfit")
     outfit_data = outfit_photo if outfit_photo else outfit_upload
     
     if outfit_data is not None:
-        st.image(outfit_data, caption="Bugünkü Kombin", use_column_width=True)
+        img_bytes = outfit_data.getvalue()
+        st.image(img_bytes, caption="Bugünkü Kombin", use_container_width=True)
+        
         if st.button("Kombinimi Puanla!", type="primary", use_container_width=True):
             with st.spinner("✨ Stilistiniz kombininizi inceliyor..."):
                 try:
-                    img_bytes = outfit_data.getvalue()
                     rating_text = gh.rate_outfit(img_bytes)
                     st.success("Değerlendirme Tamamlandı!")
                     st.markdown(rating_text)
