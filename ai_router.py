@@ -83,22 +83,8 @@ def validate_ai_answer(answer):
     if not answer:
         return None
 
-    # --------------------------------------------------------
-    # PROVIDER'IN YANLIŞ / TEKNİK CEVAPLARI
-    # --------------------------------------------------------
-
-    bad_exact = [
-        "user safety: safe",
-        "user safety safe",
-        "safety: safe",
-        "safe",
-        "ok",
-        "null",
-    ]
-
     normalized = (
         answer
-        .strip()
         .lower()
         .replace("\n", " ")
         .replace("\r", " ")
@@ -108,19 +94,22 @@ def validate_ai_answer(answer):
         normalized.split()
     )
 
-    if normalized in bad_exact:
+    invalid_answers = [
+        "user safety: safe",
+        "user safety safe",
+        "safety: safe",
+        "safe",
+        "null",
+        "none",
+    ]
 
+    if normalized in invalid_answers:
         return None
-
-    # --------------------------------------------------------
-    # TEKNİK SAFETY ÇIKTISI İÇERİYORSA
-    # --------------------------------------------------------
 
     if (
         normalized.startswith("user safety:")
         and len(normalized) < 100
     ):
-
         return None
 
     return answer
@@ -142,7 +131,6 @@ def get_file_bytes(uploaded_file):
 
         try:
             return uploaded_file.getvalue()
-
         except Exception:
             return None
 
@@ -190,21 +178,20 @@ def ask_gemini(
             "GEMINI_API_KEY bulunamadı veya Gemini istemcisi oluşturulamadı."
         )
 
-
     file_bytes = get_file_bytes(
         uploaded_file
     )
 
 
     # ========================================================
-    # TEXT
+    # SADECE METİN
     # ========================================================
 
     if not file_bytes:
 
         response = (
             gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
             )
         )
@@ -212,7 +199,7 @@ def ask_gemini(
         answer = getattr(
             response,
             "text",
-            None,
+            None
         )
 
         answer = validate_ai_answer(
@@ -229,7 +216,7 @@ def ask_gemini(
 
 
     # ========================================================
-    # FILE
+    # DOSYA
     # ========================================================
 
     mime_type = get_mime_type(
@@ -244,7 +231,6 @@ def ask_gemini(
         filename
     )[1]
 
-
     if not extension:
         extension = ".bin"
 
@@ -256,7 +242,7 @@ def ask_gemini(
 
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=extension,
+            suffix=extension
         ) as temp:
 
             temp.write(
@@ -274,7 +260,7 @@ def ask_gemini(
 
 
         # ====================================================
-        # VIDEO
+        # VIDEO PROCESSING
         # ====================================================
 
         if mime_type.startswith(
@@ -323,7 +309,7 @@ def ask_gemini(
 
         response = (
             gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 contents=[
                     uploaded,
                     prompt,
@@ -335,7 +321,7 @@ def ask_gemini(
         answer = getattr(
             response,
             "text",
-            None,
+            None
         )
 
 
@@ -362,7 +348,6 @@ def ask_gemini(
                 os.remove(
                     temp_path
                 )
-
             except Exception:
                 pass
 
@@ -447,7 +432,7 @@ def ask_openai(
                         "Kullanıcı bir medya dosyası yükledi.\n"
                         f"Dosya adı: {get_filename(uploaded_file)}\n"
                         f"Dosya türü: {mime_type}\n"
-                        "Bu dosya doğrudan analiz edilemiyorsa "
+                        "Dosya doğrudan analiz edilemiyorsa "
                         "bunu dürüstçe belirt."
                     ),
                 }
@@ -470,7 +455,7 @@ def ask_openai(
     answer = getattr(
         response,
         "output_text",
-        None,
+        None
     )
 
 
@@ -536,10 +521,6 @@ def ask_openrouter(
         )
 
 
-        # ====================================================
-        # IMAGE
-        # ====================================================
-
         if mime_type.startswith(
             "image/"
         ):
@@ -556,10 +537,6 @@ def ask_openrouter(
                 }
             )
 
-
-        # ====================================================
-        # AUDIO
-        # ====================================================
 
         elif mime_type.startswith(
             "audio/"
@@ -590,10 +567,6 @@ def ask_openrouter(
                 }
             )
 
-
-        # ====================================================
-        # OTHER
-        # ====================================================
 
         else:
 
@@ -686,10 +659,6 @@ def ask_openrouter(
             + str(data)
         )
 
-
-    # ========================================================
-    # LIST RESPONSE
-    # ========================================================
 
     if isinstance(
         answer,
