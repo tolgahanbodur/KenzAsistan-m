@@ -1,7 +1,9 @@
+```python
 import base64
 import os
 import tempfile
 import time
+import re
 
 import requests
 import streamlit as st
@@ -15,6 +17,7 @@ from openai import OpenAI
 # ============================================================
 
 def get_secret(name):
+
     try:
         value = st.secrets.get(name, "")
     except Exception:
@@ -58,6 +61,59 @@ if OPENAI_API_KEY:
 
 
 # ============================================================
+# RESPONSE CLEANER
+# ============================================================
+
+def clean_ai_response(answer):
+
+    if answer is None:
+        return ""
+
+    if not isinstance(answer, str):
+        answer = str(answer)
+
+    answer = answer.strip()
+
+    # --------------------------------------------------------
+    # TEKNİK SAFETY ÇIKTILARINI TEMİZLE
+    # --------------------------------------------------------
+
+    safety_patterns = [
+        r"User\s*Safety\s*:\s*safe",
+        r"User\s*Safety\s*:\s*unsafe",
+        r"User\s*Safety\s*:\s*[^\n]+",
+        r"Safety\s*:\s*safe",
+        r"Safety\s*:\s*unsafe",
+        r"Safety\s*:\s*[^\n]+",
+        r"Safety\s*Rating\s*:\s*[^\n]+",
+        r"Safety\s*Result\s*:\s*[^\n]+",
+    ]
+
+    for pattern in safety_patterns:
+
+        answer = re.sub(
+            pattern,
+            "",
+            answer,
+            flags=re.IGNORECASE
+        )
+
+    # --------------------------------------------------------
+    # TEKNİK BOŞLUKLARI TEMİZLE
+    # --------------------------------------------------------
+
+    answer = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        answer
+    )
+
+    answer = answer.strip()
+
+    return answer
+
+
+# ============================================================
 # FILE HELPERS
 # ============================================================
 
@@ -70,8 +126,10 @@ def get_file_bytes(uploaded_file):
         return uploaded_file
 
     if hasattr(uploaded_file, "getvalue"):
+
         try:
             return uploaded_file.getvalue()
+
         except Exception:
             return None
 
@@ -142,9 +200,14 @@ def ask_gemini(
             None
         )
 
+        answer = clean_ai_response(
+            answer
+        )
+
         if not answer:
+
             raise RuntimeError(
-                "Gemini boş cevap verdi."
+                "Gemini kullanıcıya gösterilebilir bir cevap üretmedi."
             )
 
         return answer
@@ -251,10 +314,14 @@ def ask_gemini(
             None
         )
 
+        answer = clean_ai_response(
+            answer
+        )
+
         if not answer:
 
             raise RuntimeError(
-                "Gemini medya için boş cevap verdi."
+                "Gemini medya için kullanıcıya gösterilebilir cevap üretmedi."
             )
 
         return answer
@@ -374,6 +441,11 @@ def ask_openai(
     )
 
 
+    answer = clean_ai_response(
+        answer
+    )
+
+
     if not answer:
 
         raise RuntimeError(
@@ -458,7 +530,6 @@ def ask_openrouter(
                 [-1]
             )
 
-            # bazı MIME türlerini düzelt
             if audio_format == "mpeg":
                 audio_format = "mp3"
 
@@ -593,6 +664,11 @@ def ask_openrouter(
         answer = "\n".join(parts)
 
 
+    answer = clean_ai_response(
+        answer
+    )
+
+
     if not answer:
 
         raise RuntimeError(
@@ -634,7 +710,9 @@ def ask_ai(
 
         st.session_state.last_provider = "Gemini"
 
-        return answer
+        return clean_ai_response(
+            answer
+        )
 
     except Exception as e:
 
@@ -657,7 +735,9 @@ def ask_ai(
 
         st.session_state.last_provider = "OpenAI"
 
-        return answer
+        return clean_ai_response(
+            answer
+        )
 
     except Exception as e:
 
@@ -680,7 +760,9 @@ def ask_ai(
 
         st.session_state.last_provider = "OpenRouter"
 
-        return answer
+        return clean_ai_response(
+            answer
+        )
 
     except Exception as e:
 
@@ -698,3 +780,4 @@ def ask_ai(
         "Kenz hiçbir AI sağlayıcısından cevap alamadı.\n\n"
         + "\n".join(errors)
     )
+```
