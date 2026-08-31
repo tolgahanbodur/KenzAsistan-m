@@ -1,6 +1,5 @@
 import base64
 import mimetypes
-import os
 import re
 
 import streamlit as st
@@ -21,8 +20,10 @@ from supabase_client import (
     get_wardrobe,
     add_wardrobe_item,
     get_conversations,
-    switch_conversation,
     new_conversation,
+    switch_conversation,
+    get_or_create_conversation,
+    update_conversation_title,
 )
 
 
@@ -92,22 +93,20 @@ section[data-testid="stSidebar"] {
     border-radius: 10px;
     background: #18181b;
     border: 1px solid #27272a;
-    color: #71717a;
-    font-size: 10px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    color: #a1a1aa;
+    font-size: 11px;
 }
 
 .main-logo {
     text-align: center;
-    font-size: 54px;
+    font-size: 48px;
     font-weight: 900;
-    margin-top: 120px;
+    margin-top: 100px;
 }
 
 .main-title {
     text-align: center;
-    font-size: 38px;
+    font-size: 36px;
     font-weight: 800;
     letter-spacing: -1.5px;
 }
@@ -133,15 +132,19 @@ section[data-testid="stSidebar"] {
     color: #71717a;
 }
 
+.chat-item {
+    padding: 8px 10px;
+    margin-bottom: 5px;
+    border-radius: 9px;
+    background: #18181b;
+    border: 1px solid #27272a;
+    font-size: 12px;
+}
+
 .stButton > button {
     border-radius: 11px;
     border: 1px solid #27272a;
     background: #18181b;
-}
-
-.stButton > button:hover {
-    border-color: #52525b;
-    background: #27272a;
 }
 
 </style>
@@ -156,7 +159,7 @@ section[data-testid="stSidebar"] {
 
 try:
 
-    supabase, session_id = get_user_client()
+    supabase, user_id = get_user_client()
 
 except Exception as e:
 
@@ -175,21 +178,40 @@ except Exception as e:
 # CURRENT CONVERSATION
 # ============================================================
 
-if "kenz_conversation_id" not in st.session_state:
+try:
 
-    st.session_state.kenz_conversation_id = None
+    current_conversation_id = (
+        get_or_create_conversation(
+            supabase,
+            user_id,
+        )
+    )
+
+except Exception as e:
+
+    st.error(
+        "Sohbet sistemi başlatılamadı."
+    )
+
+    st.code(
+        str(e)
+    )
+
+    st.stop()
 
 
 # ============================================================
-# LOAD MESSAGES
+# SESSION MESSAGES
 # ============================================================
 
 if "messages" not in st.session_state:
 
-    st.session_state.messages = get_messages(
-        supabase,
-        session_id,
-        100,
+    st.session_state.messages = (
+        get_messages(
+            supabase,
+            user_id,
+            100,
+        )
     )
 
 
@@ -198,10 +220,6 @@ if "messages" not in st.session_state:
 # ============================================================
 
 with st.sidebar:
-
-    # --------------------------------------------------------
-    # LOGO
-    # --------------------------------------------------------
 
     st.markdown(
         '<div class="kenz-logo">✦ KENZ</div>',
@@ -218,7 +236,7 @@ with st.sidebar:
     st.markdown(
         f"""
         <div class="user-badge">
-        Kullanıcı: {session_id[:16]}...
+        Kullanıcı: {user_id[:10]}...
         </div>
         """,
         unsafe_allow_html=True,
@@ -234,15 +252,12 @@ with st.sidebar:
     if st.button(
         "＋ Yeni sohbet",
         use_container_width=True,
-        key="new_chat_button",
     ):
 
         new_conversation(
             supabase,
-            session_id,
+            user_id,
         )
-
-        st.session_state.messages = []
 
         st.rerun()
 
@@ -251,34 +266,22 @@ with st.sidebar:
 
 
     # ========================================================
-    # CONVERSATIONS
+    # CHAT HISTORY
     # ========================================================
 
-    st.subheader("💬 Sohbetler")
+    st.subheader("Sohbetler")
 
-    try:
-
-        conversations = get_conversations(
-            supabase,
-            session_id,
-        )
-
-    except Exception as e:
-
-        conversations = []
-
-        st.caption(
-            "Sohbetler yüklenemedi."
-        )
+    conversations = get_conversations(
+        supabase,
+        user_id,
+    )
 
 
     if conversations:
 
         for conversation in conversations[:30]:
 
-            conversation_id = conversation.get(
-                "id"
-            )
+            conversation_id = conversation["id"]
 
             title = (
                 conversation.get(
@@ -287,51 +290,41 @@ with st.sidebar:
                 or "Yeni sohbet"
             )
 
-            title = str(title)
-
-            if len(title) > 30:
+            if len(title) > 32:
 
                 title = (
-                    title[:30]
+                    title[:32]
                     + "..."
                 )
 
 
-            current_id = (
-                st.session_state.get(
-                    "kenz_conversation_id"
+            is_current = (
+                str(
+                    conversation_id
+                )
+                ==
+                str(
+                    current_conversation_id
                 )
             )
 
 
-            if (
-                str(current_id)
-                == str(conversation_id)
-            ):
-
-                button_text = (
-                    f"● {title}"
-                )
-
-            else:
-
-                button_text = (
-                    f"○ {title}"
-                )
+            button_text = (
+                "● "
+                if is_current
+                else ""
+            ) + title
 
 
             if st.button(
                 button_text,
-                key=(
-                    f"conversation_"
-                    f"{conversation_id}"
-                ),
+                key=f"conversation_{conversation_id}",
                 use_container_width=True,
             ):
 
                 switch_conversation(
                     supabase,
-                    session_id,
+                    user_id,
                     conversation_id,
                 )
 
@@ -353,60 +346,48 @@ with st.sidebar:
 
     st.subheader("🧠 Hafıza")
 
-    try:
-
-        memories = get_memories(
-            supabase,
-            session_id,
-        )
-
-    except Exception:
-
-        memories = []
+    memories = get_memories(
+        supabase,
+        user_id,
+    )
 
 
     if memories:
 
         for memory in memories[:15]:
 
-            memory_text = (
-                memory.get(
-                    "memory",
-                    "",
-                )
-            )
-
             st.markdown(
                 f"""
                 <div class="memory-item">
-                {memory_text}
+                {memory.get("memory", "")}
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
+    else:
+
+        st.caption(
+            "Henüz hafıza yok."
+        )
+
+
+    if memories:
 
         if st.button(
             "🗑️ Hafızayı temizle",
             use_container_width=True,
-            key="clear_memory",
         ):
 
             for memory in memories:
 
                 delete_memory(
                     supabase,
-                    session_id,
+                    user_id,
                     memory["id"],
                 )
 
             st.rerun()
-
-    else:
-
-        st.caption(
-            "Henüz kayıtlı bilgi yok."
-        )
 
 
     st.divider()
@@ -418,17 +399,10 @@ with st.sidebar:
 
     st.subheader("👕 Gardırop")
 
-    try:
-
-        wardrobe = get_wardrobe(
-            supabase,
-            session_id,
-        )
-
-    except Exception:
-
-        wardrobe = []
-
+    wardrobe = get_wardrobe(
+        supabase,
+        user_id,
+    )
 
     st.caption(
         f"{len(wardrobe)} parça"
@@ -437,42 +411,15 @@ with st.sidebar:
 
     for item in wardrobe[:10]:
 
-        name = item.get(
-            "name",
-            "Kıyafet",
-        )
-
-        category = item.get(
-            "category",
-            "",
-        )
-
-        color = item.get(
-            "color",
-            "",
-        )
-
         st.markdown(
             f"""
             <div class="wardrobe-item">
-
-            <b>{name}</b>
-
-            <br>
-
+            <b>{item.get("name", "Kıyafet")}</b><br>
             <span class="small-muted">
-            {category}
-            """
-
-            + (
-                f" · {color}"
-                if color
-                else ""
-            )
-
-            + """
+            {item.get("category", "")}
+            ·
+            {item.get("color", "")}
             </span>
-
             </div>
             """,
             unsafe_allow_html=True,
@@ -519,77 +466,51 @@ for message in st.session_state.messages:
         "",
     )
 
+
     with st.chat_message(role):
 
         file_name = message.get(
             "file_name"
         )
 
-        file_type = message.get(
-            "file_type"
-        )
-
-        file_url = message.get(
-            "file_url"
+        file_data = message.get(
+            "file_data"
         )
 
 
-        # ----------------------------------------------------
-        # FILE
-        # ----------------------------------------------------
+        if file_name and file_data:
 
-        if file_name:
+            try:
 
-            if file_type:
+                raw = base64.b64decode(
+                    file_data
+                )
 
-                if file_type.startswith(
+                mime = mimetypes.guess_type(
+                    file_name
+                )[0] or ""
+
+
+                if mime.startswith(
                     "image/"
                 ):
 
-                    if file_url:
+                    st.image(
+                        raw,
+                        use_container_width=True,
+                    )
 
-                        st.image(
-                            file_url,
-                            use_container_width=True,
-                        )
-
-                    else:
-
-                        st.caption(
-                            f"📎 {file_name}"
-                        )
-
-                elif file_type.startswith(
+                elif mime.startswith(
                     "audio/"
                 ):
 
-                    if file_url:
+                    st.audio(raw)
 
-                        st.audio(
-                            file_url
-                        )
-
-                    else:
-
-                        st.caption(
-                            f"🎵 {file_name}"
-                        )
-
-                elif file_type.startswith(
+                elif mime.startswith(
                     "video/"
                 ):
 
-                    if file_url:
-
-                        st.video(
-                            file_url
-                        )
-
-                    else:
-
-                        st.caption(
-                            f"🎥 {file_name}"
-                        )
+                    st.video(raw)
 
                 else:
 
@@ -597,16 +518,10 @@ for message in st.session_state.messages:
                         f"📎 {file_name}"
                     )
 
-            else:
+            except Exception:
 
-                st.caption(
-                    f"📎 {file_name}"
-                )
+                pass
 
-
-        # ----------------------------------------------------
-        # TEXT
-        # ----------------------------------------------------
 
         if content:
 
@@ -671,10 +586,6 @@ if prompt:
     )
 
 
-    # --------------------------------------------------------
-    # FILE DATA
-    # --------------------------------------------------------
-
     file_bytes = None
     file_name = None
     mime_type = None
@@ -682,9 +593,13 @@ if prompt:
 
     if uploaded_file:
 
-        file_bytes = uploaded_file.getvalue()
+        file_bytes = (
+            uploaded_file.getvalue()
+        )
 
-        file_name = uploaded_file.name
+        file_name = (
+            uploaded_file.name
+        )
 
         mime_type = (
             uploaded_file.type
@@ -701,7 +616,7 @@ if prompt:
 
 
     # ========================================================
-    # SHOW USER MESSAGE
+    # SHOW USER
     # ========================================================
 
     with st.chat_message("user"):
@@ -747,12 +662,12 @@ if prompt:
             )
 
 
-    # ========================================================
-    # MEMORY
-    # ========================================================
-
     lower = user_text.lower()
 
+
+    # ========================================================
+    # MEMORY SAVE
+    # ========================================================
 
     memory_phrases = [
         "bunu hatırla",
@@ -789,19 +704,11 @@ if prompt:
 
         if memory_text:
 
-            try:
-
-                save_memory(
-                    supabase,
-                    session_id,
-                    memory_text,
-                )
-
-            except Exception as e:
-
-                st.warning(
-                    "Hafıza kaydedilemedi."
-                )
+            save_memory(
+                supabase,
+                user_id,
+                memory_text,
+            )
 
 
     # ========================================================
@@ -836,9 +743,11 @@ if prompt:
         target = target.strip().lower()
 
 
-        current_memories = get_memories(
-            supabase,
-            session_id,
+        current_memories = (
+            get_memories(
+                supabase,
+                user_id,
+            )
         )
 
 
@@ -857,7 +766,7 @@ if prompt:
 
                 delete_memory(
                     supabase,
-                    session_id,
+                    user_id,
                     memory["id"],
                 )
 
@@ -876,10 +785,7 @@ if prompt:
     )
 
 
-    if (
-        file_bytes
-        and wardrobe_command
-    ):
+    if file_bytes and wardrobe_command:
 
         try:
 
@@ -887,40 +793,46 @@ if prompt:
                 "Kıyafeti analiz ediyorum..."
             ):
 
-                item = extract_wardrobe_item(
-                    file_bytes,
-                    mime_type,
+                item = (
+                    extract_wardrobe_item(
+                        file_bytes,
+                        mime_type,
+                    )
                 )
 
 
                 add_wardrobe_item(
                     supabase,
-                    session_id,
+                    user_id,
                     item,
                 )
 
 
-            st.success(
-                "Kıyafeti gardırobuna ekledim."
-            )
+            with st.chat_message(
+                "assistant"
+            ):
 
-
-            st.rerun()
+                st.success(
+                    "Kıyafeti gardırobuna ekledim."
+                )
 
 
         except Exception as e:
 
-            st.error(
-                "Gardırop işlemi başarısız."
-            )
+            with st.chat_message(
+                "assistant"
+            ):
 
-            st.code(
-                str(e)
-            )
+                st.error(
+                    f"Gardırop işlemi başarısız: {e}"
+                )
+
+
+        st.rerun()
 
 
     # ========================================================
-    # URL CONVERSION
+    # URL CONVERTER
     # ========================================================
 
     url_match = re.search(
@@ -993,9 +905,11 @@ if prompt:
 
                 try:
 
-                    result = convert_media_url(
-                        url,
-                        selected_format,
+                    result = (
+                        convert_media_url(
+                            url,
+                            selected_format,
+                        )
                     )
 
 
@@ -1005,11 +919,7 @@ if prompt:
 
 
                     st.download_button(
-                        (
-                            f"📥 "
-                            f"{selected_format.upper()} "
-                            f"indir"
-                        ),
+                        f"📥 {selected_format.upper()} indir",
                         result["bytes"],
                         file_name=result["file_name"],
                         mime=result["mime_type"],
@@ -1018,9 +928,9 @@ if prompt:
 
 
                     answer = (
-                        "Tamamdır. Medyayı "
+                        f"Tamamdır. Medyayı "
                         f"**{selected_format.upper()}** "
-                        "formatına dönüştürdüm."
+                        f"formatına dönüştürdüm."
                     )
 
 
@@ -1031,19 +941,19 @@ if prompt:
 
                     save_message(
                         supabase,
-                        session_id,
+                        user_id,
                         "user",
                         user_text,
                         file_name,
                         file_bytes,
                         mime_type,
-                        "user",
+                        "converter",
                     )
 
 
                     save_message(
                         supabase,
-                        session_id,
+                        user_id,
                         "assistant",
                         answer,
                         provider="converter",
@@ -1053,7 +963,7 @@ if prompt:
                     st.session_state.messages = (
                         get_messages(
                             supabase,
-                            session_id,
+                            user_id,
                             100,
                         )
                     )
@@ -1081,36 +991,35 @@ if prompt:
 
     save_message(
         supabase,
-        session_id,
+        user_id,
         "user",
         user_text,
         file_name,
         file_bytes,
         mime_type,
-        "user",
     )
 
 
     # ========================================================
-    # GET CONTEXT
+    # AI CONTEXT
     # ========================================================
 
     history = get_messages(
         supabase,
-        session_id,
+        user_id,
         30,
     )
 
 
     memories = get_memories(
         supabase,
-        session_id,
+        user_id,
     )
 
 
     wardrobe = get_wardrobe(
         supabase,
-        session_id,
+        user_id,
     )
 
 
@@ -1144,120 +1053,18 @@ if prompt:
                 )
 
 
-                provider = st.session_state.get(
-                    "last_provider",
-                    "gemini",
-                )
-
-
                 save_message(
                     supabase,
-                    session_id,
+                    user_id,
                     "assistant",
                     answer,
-                    provider=provider,
                 )
 
-
-                # ------------------------------------------------
-                # AUTOMATIC TITLE
-                # ------------------------------------------------
-
-                conversations = get_conversations(
-                    supabase,
-                    session_id,
-                )
-
-
-                current_id = (
-                    st.session_state.get(
-                        "kenz_conversation_id"
-                    )
-                )
-
-
-                if (
-                    current_id
-                    and user_text
-                ):
-
-                    current = next(
-                        (
-                            c
-                            for c in conversations
-                            if str(
-                                c["id"]
-                            )
-                            == str(
-                                current_id
-                            )
-                        ),
-                        None,
-                    )
-
-
-                    if current:
-
-                        current_title = (
-                            current.get(
-                                "title"
-                            )
-                            or ""
-                        )
-
-
-                        if (
-                            current_title
-                            == "Yeni sohbet"
-                        ):
-
-                            clean_title = (
-                                user_text
-                                .replace(
-                                    "\n",
-                                    " ",
-                                )
-                                .strip()
-                            )
-
-
-                            if len(
-                                clean_title
-                            ) > 60:
-
-                                clean_title = (
-                                    clean_title[:60]
-                                    + "..."
-                                )
-
-
-                            (
-                                supabase
-                                .table(
-                                    "conversations"
-                                )
-                                .update({
-                                    "title":
-                                        clean_title,
-                                    "updated_at":
-                                        "now()",
-                                })
-                                .eq(
-                                    "id",
-                                    current_id,
-                                )
-                                .execute()
-                            )
-
-
-                # ------------------------------------------------
-                # REFRESH
-                # ------------------------------------------------
 
                 st.session_state.messages = (
                     get_messages(
                         supabase,
-                        session_id,
+                        user_id,
                         100,
                     )
                 )
