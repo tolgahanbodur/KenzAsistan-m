@@ -2,6 +2,7 @@ import base64
 import mimetypes
 import os
 import re
+
 import streamlit as st
 
 from gemini_helper import (
@@ -9,6 +10,7 @@ from gemini_helper import (
     convert_media_url,
     extract_wardrobe_item,
 )
+
 from supabase_client import (
     get_user_client,
     get_messages,
@@ -34,7 +36,7 @@ st.set_page_config(
 
 
 # ============================================================
-# CSS
+# STYLE
 # ============================================================
 
 st.markdown(
@@ -57,8 +59,8 @@ footer {
     background:
         radial-gradient(
             circle at 50% -10%,
-            rgba(99,102,241,.15),
-            transparent 35%
+            rgba(99,102,241,.16),
+            transparent 38%
         ),
         #09090b;
     color: #f4f4f5;
@@ -69,24 +71,19 @@ section[data-testid="stSidebar"] {
     border-right: 1px solid #27272a;
 }
 
-section[data-testid="stSidebar"] > div {
-    padding-top: 1.5rem;
-}
-
 .kenz-logo {
     font-size: 30px;
     font-weight: 800;
     letter-spacing: -1px;
-    margin-bottom: 3px;
 }
 
 .kenz-subtitle {
     color: #a1a1aa;
     font-size: 13px;
+    margin-bottom: 15px;
 }
 
 .user-badge {
-    margin-top: 12px;
     padding: 8px 11px;
     border-radius: 10px;
     background: #18181b;
@@ -95,65 +92,45 @@ section[data-testid="stSidebar"] > div {
     font-size: 11px;
 }
 
+.main-logo {
+    text-align: center;
+    font-size: 48px;
+    font-weight: 900;
+    margin-top: 100px;
+}
+
 .main-title {
     text-align: center;
-    font-size: 46px;
+    font-size: 36px;
     font-weight: 800;
-    letter-spacing: -2px;
-    margin-top: 80px;
-    margin-bottom: 8px;
+    letter-spacing: -1.5px;
 }
 
 .main-subtitle {
     text-align: center;
     color: #a1a1aa;
-    font-size: 15px;
-    margin-bottom: 45px;
+    margin-top: 5px;
+    margin-bottom: 40px;
 }
 
-[data-testid="stChatMessage"] {
-    background: transparent;
+.memory-item,
+.wardrobe-item {
+    padding: 9px 11px;
+    border-radius: 10px;
+    background: #18181b;
+    border: 1px solid #27272a;
+    margin-bottom: 7px;
+    font-size: 12px;
 }
 
-[data-testid="stChatMessageContent"] {
-    border-radius: 18px;
-}
-
-div[data-testid="stFileUploader"] {
-    border-radius: 12px;
+.small-muted {
+    color: #71717a;
 }
 
 .stButton > button {
     border-radius: 11px;
     border: 1px solid #27272a;
     background: #18181b;
-    color: #fafafa;
-}
-
-.stButton > button:hover {
-    border-color: #52525b;
-    background: #27272a;
-}
-
-div[data-testid="stChatInput"] {
-    border-radius: 18px;
-}
-
-div[data-testid="stChatInput"] textarea {
-    font-size: 15px;
-}
-
-.small-muted {
-    color: #71717a;
-    font-size: 12px;
-}
-
-.file-chip {
-    padding: 8px 12px;
-    background: #18181b;
-    border: 1px solid #27272a;
-    border-radius: 10px;
-    margin: 5px 0;
 }
 
 </style>
@@ -163,16 +140,23 @@ div[data-testid="stChatInput"] textarea {
 
 
 # ============================================================
-# SUPABASE / USER
+# USER
 # ============================================================
 
-supabase, user_id = get_user_client()
+try:
 
-if not supabase or not user_id:
+    supabase, user_id = get_user_client()
+
+except Exception as e:
+
     st.error(
-        "Kenz başlatılamadı. Supabase bağlantısını ve "
-        "anonymous sign-in ayarını kontrol et."
+        "Kenz başlatılamadı."
     )
+
+    st.code(
+        str(e)
+    )
+
     st.stop()
 
 
@@ -181,17 +165,11 @@ if not supabase or not user_id:
 # ============================================================
 
 if "messages" not in st.session_state:
+
     st.session_state.messages = get_messages(
         supabase,
         user_id,
-        limit=100,
-    )
-
-
-if "memories" not in st.session_state:
-    st.session_state.memories = get_memories(
-        supabase,
-        user_id,
+        100,
     )
 
 
@@ -216,7 +194,7 @@ with st.sidebar:
     st.markdown(
         f"""
         <div class="user-badge">
-            Kullanıcı: {user_id[:8]}...
+        Kullanıcı: {user_id[:10]}...
         </div>
         """,
         unsafe_allow_html=True,
@@ -228,14 +206,16 @@ with st.sidebar:
         "＋ Yeni sohbet",
         use_container_width=True,
     ):
+
         st.session_state.messages = []
+
         st.rerun()
 
     st.divider()
 
-    # --------------------------------------------------------
-    # HAFIZA
-    # --------------------------------------------------------
+    # ========================================================
+    # MEMORY
+    # ========================================================
 
     st.subheader("🧠 Hafıza")
 
@@ -246,17 +226,12 @@ with st.sidebar:
 
     if memories:
 
-        for memory in memories[:20]:
-
-            text = memory.get(
-                "memory",
-                "",
-            )
+        for memory in memories[:15]:
 
             st.markdown(
                 f"""
-                <div class="file-chip">
-                    {text}
+                <div class="memory-item">
+                {memory.get("memory", "")}
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -265,14 +240,31 @@ with st.sidebar:
     else:
 
         st.caption(
-            "Henüz kayıtlı hafıza yok."
+            "Henüz hafıza yok."
         )
+
+    if memories:
+
+        if st.button(
+            "🗑️ Hafızayı temizle",
+            use_container_width=True,
+        ):
+
+            for memory in memories:
+
+                delete_memory(
+                    supabase,
+                    user_id,
+                    memory["id"],
+                )
+
+            st.rerun()
 
     st.divider()
 
-    # --------------------------------------------------------
-    # GARDIROP
-    # --------------------------------------------------------
+    # ========================================================
+    # WARDROBE
+    # ========================================================
 
     st.subheader("👕 Gardırop")
 
@@ -282,80 +274,39 @@ with st.sidebar:
     )
 
     st.caption(
-        f"{len(wardrobe)} parça kayıtlı"
+        f"{len(wardrobe)} parça"
     )
 
-    if wardrobe:
+    for item in wardrobe[:10]:
 
-        for item in wardrobe[:10]:
-
-            name = item.get(
-                "name",
-                "Kıyafet",
-            )
-
-            category = item.get(
-                "category",
-                "",
-            )
-
-            color = item.get(
-                "color",
-                "",
-            )
-
-            st.markdown(
-                f"""
-                <div class="file-chip">
-                    <b>{name}</b><br>
-                    <span class="small-muted">
-                        {category} · {color}
-                    </span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.divider()
-
-    if st.button(
-        "🗑️ Hafızayı temizle",
-        use_container_width=True,
-    ):
-
-        for memory in memories:
-
-            delete_memory(
-                supabase,
-                user_id,
-                memory["id"],
-            )
-
-        st.session_state.memories = []
-
-        st.success(
-            "Hafıza temizlendi."
+        st.markdown(
+            f"""
+            <div class="wardrobe-item">
+            <b>{item.get("name", "Kıyafet")}</b><br>
+            <span class="small-muted">
+            {item.get("category", "")}
+            ·
+            {item.get("color", "")}
+            </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-
-        st.rerun()
 
 
 # ============================================================
-# MAIN TITLE
+# WELCOME
 # ============================================================
 
 if not st.session_state.messages:
 
     st.markdown(
-        '<div class="main-title">✦</div>',
+        '<div class="main-logo">✦</div>',
         unsafe_allow_html=True,
     )
 
     st.markdown(
-        '<div class="main-title" '
-        'style="font-size:34px;margin-top:0;">'
-        'Kenz'
-        '</div>',
+        '<div class="main-title">Kenz</div>',
         unsafe_allow_html=True,
     )
 
@@ -368,7 +319,7 @@ if not st.session_state.messages:
 
 
 # ============================================================
-# DISPLAY HISTORY
+# HISTORY
 # ============================================================
 
 for message in st.session_state.messages:
@@ -383,19 +334,17 @@ for message in st.session_state.messages:
         "",
     )
 
-    file_data = message.get(
-        "file_data",
-    )
+    with st.chat_message(role):
 
-    file_name = message.get(
-        "file_name",
-    )
+        file_name = message.get(
+            "file_name"
+        )
 
-    with st.chat_message(
-        role,
-    ):
+        file_data = message.get(
+            "file_data"
+        )
 
-        if file_data and file_name:
+        if file_name and file_data:
 
             try:
 
@@ -407,35 +356,25 @@ for message in st.session_state.messages:
                     file_name
                 )[0] or ""
 
-                if mime.startswith(
-                    "image/"
-                ):
+                if mime.startswith("image/"):
 
                     st.image(
                         raw,
                         use_container_width=True,
                     )
 
-                elif mime.startswith(
-                    "audio/"
-                ):
+                elif mime.startswith("audio/"):
 
-                    st.audio(
-                        raw,
-                    )
+                    st.audio(raw)
 
-                elif mime.startswith(
-                    "video/"
-                ):
+                elif mime.startswith("video/"):
 
-                    st.video(
-                        raw,
-                    )
+                    st.video(raw)
 
                 else:
 
                     st.download_button(
-                        "📥 Dosyayı aç",
+                        "📎 Dosyayı görüntüle",
                         raw,
                         file_name=file_name,
                         mime=mime,
@@ -445,7 +384,10 @@ for message in st.session_state.messages:
                 pass
 
         if content:
-            st.markdown(content)
+
+            st.markdown(
+                content
+            )
 
 
 # ============================================================
@@ -454,7 +396,7 @@ for message in st.session_state.messages:
 
 prompt = st.chat_input(
     "Kenz'e bir şey yaz...",
-    accept_file="multiple",
+    accept_file=True,
     file_type=[
         "jpg",
         "jpeg",
@@ -478,57 +420,55 @@ prompt = st.chat_input(
         "avi",
     ],
     max_upload_size=200,
-    key="kenz_chat_input",
 )
 
 
 # ============================================================
-# NEW MESSAGE
+# MESSAGE
 # ============================================================
 
 if prompt:
 
     user_text = (
-        prompt.text or ""
+        getattr(
+            prompt,
+            "text",
+            "",
+        )
+        or ""
     ).strip()
 
-    uploaded_files = (
-        prompt.files
-        if hasattr(prompt, "files")
-        else []
+    uploaded_file = getattr(
+        prompt,
+        "file",
+        None,
     )
 
-    if (
-        not user_text
-        and not uploaded_files
-    ):
-
-        st.stop()
-
-
-    # ========================================================
-    # CURRENT FILE
-    # ========================================================
+    # --------------------------------------------------------
+    # FILE DATA
+    # --------------------------------------------------------
 
     file_bytes = None
     file_name = None
     mime_type = None
 
-    if uploaded_files:
+    if uploaded_file:
 
-        uploaded = uploaded_files[0]
+        file_bytes = uploaded_file.getvalue()
 
-        file_bytes = uploaded.getvalue()
-
-        file_name = uploaded.name
+        file_name = uploaded_file.name
 
         mime_type = (
-            uploaded.type
+            uploaded_file.type
             or mimetypes.guess_type(
                 file_name
             )[0]
             or "application/octet-stream"
         )
+
+    if not user_text and not file_bytes:
+
+        st.stop()
 
 
     # ========================================================
@@ -539,26 +479,20 @@ if prompt:
 
         if file_bytes:
 
-            if mime_type.startswith(
-                "image/"
-            ):
+            if mime_type.startswith("image/"):
 
                 st.image(
                     file_bytes,
                     use_container_width=True,
                 )
 
-            elif mime_type.startswith(
-                "audio/"
-            ):
+            elif mime_type.startswith("audio/"):
 
                 st.audio(
                     file_bytes
                 )
 
-            elif mime_type.startswith(
-                "video/"
-            ):
+            elif mime_type.startswith("video/"):
 
                 st.video(
                     file_bytes
@@ -578,33 +512,38 @@ if prompt:
 
 
     # ========================================================
-    # MEMORY COMMANDS
+    # MEMORY
     # ========================================================
 
-    lower_text = user_text.lower()
+    lower = user_text.lower()
 
-    memory_saved = False
+    memory_phrases = [
+        "bunu hatırla",
+        "bunu hafızana al",
+        "hafızanda tut",
+        "aklında tut",
+        "bundan sonra",
+    ]
 
-    if any(
-        phrase in lower_text
-        for phrase in [
-            "bunu hatırla",
-            "bunu hafızana al",
-            "bunu hafızanda tut",
-            "aklında tut",
-            "bunu unutma",
-            "bundan sonra",
-        ]
-    ):
+    should_save_memory = any(
+        phrase in lower
+        for phrase in memory_phrases
+    )
 
-        memory_text = re.sub(
-            r"\b(bunu hatırla|bunu hafızana al|"
-            r"bunu hafızanda tut|aklında tut|"
-            r"bunu unutma)\b",
-            "",
-            user_text,
-            flags=re.IGNORECASE,
-        ).strip()
+    if should_save_memory:
+
+        memory_text = user_text
+
+        for phrase in memory_phrases:
+
+            memory_text = re.sub(
+                re.escape(phrase),
+                "",
+                memory_text,
+                flags=re.IGNORECASE,
+            )
+
+        memory_text = memory_text.strip()
 
         if memory_text:
 
@@ -614,45 +553,50 @@ if prompt:
                 memory_text,
             )
 
-            memory_saved = True
-
 
     # ========================================================
-    # FORGET COMMAND
+    # FORGET
     # ========================================================
+
+    forget_phrases = [
+        "bunu unut",
+        "şunu unut",
+        "hafızadan sil",
+    ]
 
     if any(
-        phrase in lower_text
-        for phrase in [
-            "bunu unut",
-            "şunu unut",
-            "hafızadan sil",
-        ]
+        phrase in lower
+        for phrase in forget_phrases
     ):
 
-        memories = get_memories(
+        target = user_text
+
+        for phrase in forget_phrases:
+
+            target = re.sub(
+                re.escape(phrase),
+                "",
+                target,
+                flags=re.IGNORECASE,
+            )
+
+        target = target.strip().lower()
+
+        current_memories = get_memories(
             supabase,
             user_id,
         )
 
-        target = re.sub(
-            r"\b(bunu unut|şunu unut|hafızadan sil)\b",
-            "",
-            user_text,
-            flags=re.IGNORECASE,
-        ).strip().lower()
+        for memory in current_memories:
 
-        for memory in memories:
-
-            memory_text = memory.get(
+            text = memory.get(
                 "memory",
                 "",
             )
 
             if (
                 not target
-                or target in memory_text.lower()
-                or memory_text.lower() in target
+                or target in text.lower()
             ):
 
                 delete_memory(
@@ -663,23 +607,19 @@ if prompt:
 
 
     # ========================================================
-    # WARDROBE COMMAND
+    # WARDROBE
     # ========================================================
 
-    wardrobe_requested = (
-        file_bytes is not None
-        and any(
-            phrase in lower_text
-            for phrase in [
-                "gardırobuma ekle",
-                "gardıroba ekle",
-                "dolabıma ekle",
-                "kıyafetlerime ekle",
-            ]
-        )
+    wardrobe_command = any(
+        phrase in lower
+        for phrase in [
+            "gardırobuma ekle",
+            "gardıroba ekle",
+            "dolabıma ekle",
+        ]
     )
 
-    if wardrobe_requested:
+    if file_bytes and wardrobe_command:
 
         try:
 
@@ -690,40 +630,46 @@ if prompt:
                 item = extract_wardrobe_item(
                     file_bytes,
                     mime_type,
-                    user_text,
                 )
 
-                if item:
+                add_wardrobe_item(
+                    supabase,
+                    user_id,
+                    item,
+                )
 
-                    add_wardrobe_item(
-                        supabase,
-                        user_id,
-                        item,
-                    )
+            with st.chat_message(
+                "assistant"
+            ):
 
-                    st.success(
-                        "Kıyafet gardırobuna eklendi."
-                    )
+                st.success(
+                    "Kıyafeti gardırobuna ekledim."
+                )
 
         except Exception as e:
 
-            st.warning(
-                "Gardırop kaydı yapılamadı: "
-                + str(e)
-            )
+            with st.chat_message(
+                "assistant"
+            ):
+
+                st.error(
+                    f"Gardırop işlemi başarısız: {e}"
+                )
+
+        st.rerun()
 
 
     # ========================================================
-    # LINK CONVERSION
+    # URL CONVERSION
     # ========================================================
 
     url_match = re.search(
         r"https?://[^\s]+",
         user_text,
-        flags=re.IGNORECASE,
+        re.IGNORECASE,
     )
 
-    requested_formats = [
+    formats = [
         "mp3",
         "wav",
         "flac",
@@ -739,35 +685,34 @@ if prompt:
         "gif",
     ]
 
-    requested_format = None
+    selected_format = None
 
-    for fmt in requested_formats:
+    for fmt in formats:
 
         if re.search(
-            rf"\b{re.escape(fmt)}\b",
-            lower_text,
+            rf"\b{fmt}\b",
+            lower,
         ):
 
-            requested_format = fmt
+            selected_format = fmt
+
             break
 
 
-    # ========================================================
-    # CONVERSION
-    # ========================================================
+    conversion_words = [
+        "çevir",
+        "dönüştür",
+        "indir",
+        "yap",
+        "format",
+    ]
 
     if (
         url_match
-        and requested_format
+        and selected_format
         and any(
-            word in lower_text
-            for word in [
-                "çevir",
-                "dönüştür",
-                "indir",
-                "yap",
-                "format",
-            ]
+            word in lower
+            for word in conversion_words
         )
     ):
 
@@ -778,22 +723,22 @@ if prompt:
         ):
 
             with st.spinner(
-                f"Link işleniyor → {requested_format.upper()}..."
+                f"{selected_format.upper()} hazırlanıyor..."
             ):
 
                 try:
 
                     result = convert_media_url(
                         url,
-                        requested_format,
+                        selected_format,
                     )
 
                     st.success(
-                        "Dönüştürme tamamlandı."
+                        "Hazır."
                     )
 
                     st.download_button(
-                        f"📥 {requested_format.upper()} indir",
+                        f"📥 {selected_format.upper()} indir",
                         result["bytes"],
                         file_name=result["file_name"],
                         mime=result["mime_type"],
@@ -801,8 +746,8 @@ if prompt:
                     )
 
                     answer = (
-                        f"Tamamdır. Linki "
-                        f"**{requested_format.upper()}** "
+                        f"Tamamdır. Medyayı "
+                        f"**{selected_format.upper()}** "
                         f"formatına dönüştürdüm."
                     )
 
@@ -824,15 +769,13 @@ if prompt:
                         user_id,
                         "assistant",
                         answer,
-                        None,
-                        None,
                     )
 
                     st.session_state.messages = (
                         get_messages(
                             supabase,
                             user_id,
-                            limit=100,
+                            100,
                         )
                     )
 
@@ -841,7 +784,7 @@ if prompt:
                 except Exception as e:
 
                     st.error(
-                        "Bu link dönüştürülemedi."
+                        "Bu bağlantı dönüştürülemedi."
                     )
 
                     st.caption(
@@ -852,7 +795,7 @@ if prompt:
 
 
     # ========================================================
-    # SAVE USER MESSAGE
+    # SAVE USER
     # ========================================================
 
     save_message(
@@ -866,19 +809,25 @@ if prompt:
 
 
     # ========================================================
-    # HISTORY FOR AI
+    # AI
     # ========================================================
 
     history = get_messages(
         supabase,
         user_id,
-        limit=30,
+        30,
     )
 
+    memories = get_memories(
+        supabase,
+        user_id,
+    )
 
-    # ========================================================
-    # AI
-    # ========================================================
+    wardrobe = get_wardrobe(
+        supabase,
+        user_id,
+    )
+
 
     with st.chat_message(
         "assistant"
@@ -896,53 +845,35 @@ if prompt:
                     file_name=file_name,
                     mime_type=mime_type,
                     history=history,
-                    memories=get_memories(
-                        supabase,
-                        user_id,
-                    ),
-                    wardrobe=get_wardrobe(
-                        supabase,
-                        user_id,
-                    ),
+                    memories=memories,
+                    wardrobe=wardrobe,
                 )
 
                 st.markdown(
                     answer
                 )
 
-                if memory_saved:
-
-                    st.caption(
-                        "🧠 Bunu hafızama aldım."
-                    )
-
                 save_message(
                     supabase,
                     user_id,
                     "assistant",
                     answer,
-                    None,
-                    None,
                 )
 
                 st.session_state.messages = (
                     get_messages(
                         supabase,
                         user_id,
-                        limit=100,
+                        100,
                     )
                 )
 
             except Exception as e:
 
                 st.error(
-                    "Kenz cevap verirken bir hata oluştu."
+                    "Kenz cevap verirken hata oluştu."
                 )
 
-                with st.expander(
-                    "Teknik hata"
-                ):
-
-                    st.code(
-                        str(e)
-                    )
+                st.code(
+                    str(e)
+                )
