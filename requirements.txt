@@ -1,8 +1,7 @@
-streamlit>=1.50.0
-supabase>=2.15.0
-google-genai>=1.30.0
-pydantic>=2.8.0
-Pillow>=10.0.0
-yt-dlp>=2026.8.0
-imageio-ffmpeg>=0.6.0
-requests>=2.32.0
+streamlit
+google-genai
+openai
+requests
+pillow
+supabase
+yt-dlp
