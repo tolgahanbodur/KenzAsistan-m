@@ -1,9 +1,7 @@
 import os
 import uuid
 import streamlit as st
-
 from supabase import create_client
-from streamlit_cookies_manager import EncryptedCookieManager
 
 
 # ============================================================
@@ -18,9 +16,9 @@ def get_secret(name):
         return value
 
     try:
-        return st.secrets.get(name, "")
+        return st.secrets[name]
     except Exception:
-        return ""
+        return None
 
 
 # ============================================================
@@ -50,81 +48,19 @@ def create_supabase():
 
 
 # ============================================================
-# COOKIES
+# USER SESSION
 # ============================================================
-
-@st.cache_resource
-def create_cookie_manager():
-
-    password = get_secret(
-        "KENZ_COOKIE_PASSWORD"
-    )
-
-    if not password:
-
-        raise ValueError(
-            "KENZ_COOKIE_PASSWORD bulunamadı. "
-            "Streamlit Secrets içine eklemelisin."
-        )
-
-    return EncryptedCookieManager(
-        prefix="kenz_",
-        password=password,
-    )
-
 
 def get_session_id():
 
-    cookies = create_cookie_manager()
+    if "kenz_user_id" not in st.session_state:
 
-    if not cookies.ready():
-
-        st.warning(
-            "Kenz güvenli kullanıcı oturumunu hazırlıyor..."
+        st.session_state.kenz_user_id = str(
+            uuid.uuid4()
         )
 
-        st.stop()
+    return st.session_state.kenz_user_id
 
-
-    # --------------------------------------------------------
-    # Daha önce oluşturulmuş kullanıcı
-    # --------------------------------------------------------
-
-    existing_id = cookies.get(
-        "user_id"
-    )
-
-    if existing_id:
-
-        st.session_state[
-            "kenz_user_id"
-        ] = existing_id
-
-        return existing_id
-
-
-    # --------------------------------------------------------
-    # Yeni kullanıcı
-    # --------------------------------------------------------
-
-    user_id = str(
-        uuid.uuid4()
-    )
-
-    cookies["user_id"] = user_id
-
-    cookies.save()
-
-    st.session_state[
-        "kenz_user_id"
-    ] = user_id
-
-    return user_id
-
-
-# ============================================================
-# USER
-# ============================================================
 
 def get_user_client():
 
@@ -159,7 +95,6 @@ def create_conversation(
     )
 
     if not response.data:
-
         raise RuntimeError(
             "Yeni sohbet oluşturulamadı."
         )
@@ -175,9 +110,7 @@ def get_conversations(
     response = (
         supabase
         .table("conversations")
-        .select(
-            "id,title,created_at,updated_at,user_session_id"
-        )
+        .select("*")
         .eq(
             "user_session_id",
             user_id,
@@ -197,14 +130,13 @@ def get_or_create_conversation(
     user_id,
 ):
 
-    current_id = st.session_state.get(
+    conversation_id = st.session_state.get(
         "kenz_conversation_id"
     )
 
-    if current_id:
+    if conversation_id:
 
-        return current_id
-
+        return conversation_id
 
     conversations = get_conversations(
         supabase,
@@ -250,18 +182,13 @@ def switch_conversation(
 
         return False
 
-
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
 
-
-    st.session_state.messages = (
-        get_messages_by_conversation(
-            supabase,
-            conversation_id,
-            100,
-        )
+    st.session_state.messages = get_messages(
+        supabase,
+        user_id,
     )
 
     return True
@@ -297,7 +224,6 @@ def update_conversation_title(
 
         return
 
-
     (
         supabase
         .table("conversations")
@@ -327,49 +253,31 @@ def save_message(
     provider=None,
 ):
 
-    conversation_id = (
-        get_or_create_conversation(
-            supabase,
-            user_id,
-        )
+    conversation_id = get_or_create_conversation(
+        supabase,
+        user_id,
     )
-
 
     response = (
         supabase
         .table("messages")
         .insert({
-            "conversation_id":
-                conversation_id,
-
-            "role":
-                role,
-
-            "content":
-                content or "",
-
-            "file_url":
-                None,
-
-            "file_name":
-                file_name,
-
-            "file_type":
-                file_type,
-
-            "provider":
-                provider,
+            "conversation_id": conversation_id,
+            "role": role,
+            "content": content or "",
+            "file_url": None,
+            "file_name": file_name,
+            "file_type": file_type,
+            "provider": provider,
         })
         .execute()
     )
-
 
     (
         supabase
         .table("conversations")
         .update({
-            "updated_at":
-                "now()",
+            "updated_at": "now()",
         })
         .eq(
             "id",
@@ -378,20 +286,19 @@ def save_message(
         .execute()
     )
 
-
     return response.data
 
 
-def get_messages_by_conversation(
+def get_messages(
     supabase,
-    conversation_id,
+    user_id,
     limit=100,
 ):
 
-    if not conversation_id:
-
-        return []
-
+    conversation_id = get_or_create_conversation(
+        supabase,
+        user_id,
+    )
 
     response = (
         supabase
@@ -411,29 +318,7 @@ def get_messages_by_conversation(
         .execute()
     )
 
-
     return response.data or []
-
-
-def get_messages(
-    supabase,
-    user_id,
-    limit=100,
-):
-
-    conversation_id = (
-        get_or_create_conversation(
-            supabase,
-            user_id,
-        )
-    )
-
-
-    return get_messages_by_conversation(
-        supabase,
-        conversation_id,
-        limit,
-    )
 
 
 # ============================================================
@@ -460,7 +345,6 @@ def get_memories(
         .execute()
     )
 
-
     return response.data or []
 
 
@@ -474,16 +358,12 @@ def save_memory(
 
         return
 
-
     (
         supabase
         .table("memories")
         .insert({
-            "user_session_id":
-                user_id,
-
-            "memory":
-                memory,
+            "user_session_id": user_id,
+            "memory": memory,
         })
         .execute()
     )
@@ -535,7 +415,6 @@ def get_wardrobe(
         .execute()
     )
 
-
     return response.data or []
 
 
@@ -549,40 +428,28 @@ def add_wardrobe_item(
 
         return
 
-
     (
         supabase
         .table("wardrobe")
         .insert({
-            "user_session_id":
-                user_id,
-
-            "name":
-                item.get(
-                    "name",
-                    "Kıyafet",
-                ),
-
-            "category":
-                item.get(
-                    "category",
-                    "diğer",
-                ),
-
-            "color":
-                item.get(
-                    "color",
-                    "belirsiz",
-                ),
-
-            "description":
-                item.get(
-                    "description",
-                    "",
-                ),
-
-            "metadata":
-                item,
+            "user_session_id": user_id,
+            "name": item.get(
+                "name",
+                "Kıyafet",
+            ),
+            "category": item.get(
+                "category",
+                "diğer",
+            ),
+            "color": item.get(
+                "color",
+                "belirsiz",
+            ),
+            "description": item.get(
+                "description",
+                "",
+            ),
+            "metadata": item,
         })
         .execute()
     )
