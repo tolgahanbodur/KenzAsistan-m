@@ -5,3 +5,4 @@ requests
 pillow
 supabase
 yt-dlp
+streamlit-cookies-manager
