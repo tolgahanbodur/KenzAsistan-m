@@ -40,23 +40,27 @@ def create_supabase():
 
 
 # ============================================================
-# SESSION
+# USER SESSION
 # ============================================================
 
 def get_session_id():
 
-    if "kenz_session_id" not in st.session_state:
-        st.session_state.kenz_session_id = str(uuid.uuid4())
+    if "kenz_user_id" not in st.session_state:
 
-    return st.session_state.kenz_session_id
+        st.session_state.kenz_user_id = str(
+            uuid.uuid4()
+        )
+
+    return st.session_state.kenz_user_id
 
 
 def get_user_client():
 
     supabase = create_supabase()
-    session_id = get_session_id()
 
-    return supabase, session_id
+    user_id = get_session_id()
+
+    return supabase, user_id
 
 
 # ============================================================
@@ -65,7 +69,7 @@ def get_user_client():
 
 def create_conversation(
     supabase,
-    session_id,
+    user_id,
     title="Yeni sohbet",
 ):
 
@@ -74,26 +78,23 @@ def create_conversation(
         .table("conversations")
         .insert({
             "title": title,
-            "user_session_id": session_id,
+            "user_session_id": user_id,
         })
         .execute()
     )
 
     if not response.data:
         raise RuntimeError(
-            "Yeni konuşma oluşturulamadı."
+            "Yeni sohbet oluşturulamadı."
         )
 
     return response.data[0]["id"]
 
 
-def get_or_create_conversation(
+def get_conversations(
     supabase,
-    session_id,
+    user_id,
 ):
-
-    if "kenz_conversation_id" in st.session_state:
-        return st.session_state.kenz_conversation_id
 
     response = (
         supabase
@@ -101,49 +102,125 @@ def get_or_create_conversation(
         .select("*")
         .eq(
             "user_session_id",
-            session_id,
+            user_id,
         )
         .order(
             "updated_at",
             desc=True,
         )
-        .limit(1)
         .execute()
     )
 
-    if response.data:
-        conversation_id = response.data[0]["id"]
+    return response.data or []
 
-    else:
-        conversation_id = create_conversation(
-            supabase,
-            session_id,
-        )
 
-    st.session_state.kenz_conversation_id = (
-        conversation_id
+def get_or_create_conversation(
+    supabase,
+    user_id,
+):
+
+    if "kenz_conversation_id" in st.session_state:
+
+        return st.session_state[
+            "kenz_conversation_id"
+        ]
+
+    conversations = get_conversations(
+        supabase,
+        user_id,
     )
 
+    if conversations:
+
+        conversation_id = conversations[0]["id"]
+
+    else:
+
+        conversation_id = create_conversation(
+            supabase,
+            user_id,
+        )
+
+    st.session_state[
+        "kenz_conversation_id"
+    ] = conversation_id
+
     return conversation_id
+
+
+def switch_conversation(
+    supabase,
+    user_id,
+    conversation_id,
+):
+
+    conversations = get_conversations(
+        supabase,
+        user_id,
+    )
+
+    valid = any(
+        str(c["id"]) == str(conversation_id)
+        for c in conversations
+    )
+
+    if not valid:
+        return False
+
+    st.session_state[
+        "kenz_conversation_id"
+    ] = conversation_id
+
+    st.session_state.messages = get_messages(
+        supabase,
+        user_id,
+    )
+
+    return True
 
 
 def new_conversation(
     supabase,
-    session_id,
+    user_id,
 ):
 
     conversation_id = create_conversation(
         supabase,
-        session_id,
+        user_id,
+        "Yeni sohbet",
     )
 
-    st.session_state.kenz_conversation_id = (
-        conversation_id
-    )
+    st.session_state[
+        "kenz_conversation_id"
+    ] = conversation_id
 
     st.session_state.messages = []
 
     return conversation_id
+
+
+def update_conversation_title(
+    supabase,
+    conversation_id,
+    title,
+):
+
+    if not title:
+        return
+
+    (
+        supabase
+        .table("conversations")
+        .update({
+            "title": title[:80],
+            "updated_at": "now()",
+        })
+        .eq(
+            "id",
+            conversation_id,
+        )
+        .execute()
+    )
 
 
 # ============================================================
@@ -152,7 +229,7 @@ def new_conversation(
 
 def save_message(
     supabase,
-    session_id,
+    user_id,
     role,
     content,
     file_name=None,
@@ -163,13 +240,8 @@ def save_message(
 
     conversation_id = get_or_create_conversation(
         supabase,
-        session_id,
+        user_id,
     )
-
-    # --------------------------------------------------------
-    # Dosyayı şimdilik database'e gömmüyoruz.
-    # Büyük dosyalar için Supabase Storage kullanacağız.
-    # --------------------------------------------------------
 
     response = (
         supabase
@@ -186,21 +258,31 @@ def save_message(
         .execute()
     )
 
-    if not response.data:
-        raise RuntimeError(
-            "Mesaj kaydedilemedi."
+    (
+        supabase
+        .table("conversations")
+        .update({
+            "updated_at": "now()",
+        })
+        .eq(
+            "id",
+            conversation_id,
         )
+        .execute()
+    )
+
+    return response.data
 
 
 def get_messages(
     supabase,
-    session_id,
+    user_id,
     limit=100,
 ):
 
     conversation_id = get_or_create_conversation(
         supabase,
-        session_id,
+        user_id,
     )
 
     response = (
@@ -228,83 +310,67 @@ def get_messages(
 
 def get_memories(
     supabase,
-    session_id,
+    user_id,
 ):
 
-    try:
-
-        response = (
-            supabase
-            .table("memories")
-            .select("*")
-            .eq(
-                "user_session_id",
-                session_id,
-            )
-            .order(
-                "created_at",
-                desc=True,
-            )
-            .execute()
+    response = (
+        supabase
+        .table("memories")
+        .select("*")
+        .eq(
+            "user_session_id",
+            user_id,
         )
+        .order(
+            "created_at",
+            desc=True,
+        )
+        .execute()
+    )
 
-        return response.data or []
-
-    except Exception:
-
-        return []
+    return response.data or []
 
 
 def save_memory(
     supabase,
-    session_id,
+    user_id,
     memory,
 ):
 
     if not memory:
         return
 
-    try:
-
-        (
-            supabase
-            .table("memories")
-            .insert({
-                "user_session_id": session_id,
-                "memory": memory,
-            })
-            .execute()
-        )
-
-    except Exception:
-        pass
+    (
+        supabase
+        .table("memories")
+        .insert({
+            "user_session_id": user_id,
+            "memory": memory,
+        })
+        .execute()
+    )
 
 
 def delete_memory(
     supabase,
-    session_id,
+    user_id,
     memory_id,
 ):
 
-    try:
-
-        (
-            supabase
-            .table("memories")
-            .delete()
-            .eq(
-                "id",
-                memory_id,
-            )
-            .eq(
-                "user_session_id",
-                session_id,
-            )
-            .execute()
+    (
+        supabase
+        .table("memories")
+        .delete()
+        .eq(
+            "id",
+            memory_id,
         )
-
-    except Exception:
-        pass
+        .eq(
+            "user_session_id",
+            user_id,
+        )
+        .execute()
+    )
 
 
 # ============================================================
@@ -313,69 +379,58 @@ def delete_memory(
 
 def get_wardrobe(
     supabase,
-    session_id,
+    user_id,
 ):
 
-    try:
-
-        response = (
-            supabase
-            .table("wardrobe")
-            .select("*")
-            .eq(
-                "user_session_id",
-                session_id,
-            )
-            .order(
-                "created_at",
-                desc=True,
-            )
-            .execute()
+    response = (
+        supabase
+        .table("wardrobe")
+        .select("*")
+        .eq(
+            "user_session_id",
+            user_id,
         )
+        .order(
+            "created_at",
+            desc=True,
+        )
+        .execute()
+    )
 
-        return response.data or []
-
-    except Exception:
-
-        return []
+    return response.data or []
 
 
 def add_wardrobe_item(
     supabase,
-    session_id,
+    user_id,
     item,
 ):
 
     if not item:
         return
 
-    try:
-
-        (
-            supabase
-            .table("wardrobe")
-            .insert({
-                "user_session_id": session_id,
-                "name": item.get(
-                    "name",
-                    "Kıyafet",
-                ),
-                "category": item.get(
-                    "category",
-                    "diğer",
-                ),
-                "color": item.get(
-                    "color",
-                    "belirsiz",
-                ),
-                "description": item.get(
-                    "description",
-                    "",
-                ),
-                "metadata": item,
-            })
-            .execute()
-        )
-
-    except Exception:
-        pass
+    (
+        supabase
+        .table("wardrobe")
+        .insert({
+            "user_session_id": user_id,
+            "name": item.get(
+                "name",
+                "Kıyafet",
+            ),
+            "category": item.get(
+                "category",
+                "diğer",
+            ),
+            "color": item.get(
+                "color",
+                "belirsiz",
+            ),
+            "description": item.get(
+                "description",
+                "",
+            ),
+            "metadata": item,
+        })
+        .execute()
+    )
