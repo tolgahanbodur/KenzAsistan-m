@@ -9,6 +9,7 @@ from supabase import create_client
 # ============================================================
 
 def get_secret(name):
+
     value = os.environ.get(name)
 
     if value:
@@ -31,12 +32,19 @@ def create_supabase():
     key = get_secret("SUPABASE_KEY")
 
     if not url:
-        raise ValueError("SUPABASE_URL bulunamadı.")
+        raise ValueError(
+            "SUPABASE_URL bulunamadı."
+        )
 
     if not key:
-        raise ValueError("SUPABASE_KEY bulunamadı.")
+        raise ValueError(
+            "SUPABASE_KEY bulunamadı."
+        )
 
-    return create_client(url, key)
+    return create_client(
+        url,
+        key,
+    )
 
 
 # ============================================================
@@ -60,7 +68,10 @@ def get_user_client():
 
     user_id = get_session_id()
 
-    return supabase, user_id
+    return (
+        supabase,
+        user_id,
+    )
 
 
 # ============================================================
@@ -84,6 +95,7 @@ def create_conversation(
     )
 
     if not response.data:
+
         raise RuntimeError(
             "Yeni sohbet oluşturulamadı."
         )
@@ -99,7 +111,9 @@ def get_conversations(
     response = (
         supabase
         .table("conversations")
-        .select("*")
+        .select(
+            "id,title,created_at,updated_at,user_session_id"
+        )
         .eq(
             "user_session_id",
             user_id,
@@ -119,16 +133,28 @@ def get_or_create_conversation(
     user_id,
 ):
 
-    if "kenz_conversation_id" in st.session_state:
+    # --------------------------------------------------------
+    # Zaten seçili sohbet varsa
+    # --------------------------------------------------------
 
-        return st.session_state[
-            "kenz_conversation_id"
-        ]
+    current_id = st.session_state.get(
+        "kenz_conversation_id"
+    )
+
+    if current_id:
+
+        return current_id
+
+
+    # --------------------------------------------------------
+    # Kullanıcının eski sohbetleri
+    # --------------------------------------------------------
 
     conversations = get_conversations(
         supabase,
         user_id,
     )
+
 
     if conversations:
 
@@ -139,11 +165,14 @@ def get_or_create_conversation(
         conversation_id = create_conversation(
             supabase,
             user_id,
+            "Yeni sohbet",
         )
+
 
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
+
 
     return conversation_id
 
@@ -154,27 +183,58 @@ def switch_conversation(
     conversation_id,
 ):
 
+    # --------------------------------------------------------
+    # Bu sohbet gerçekten bu kullanıcıya mı ait?
+    # --------------------------------------------------------
+
     conversations = get_conversations(
         supabase,
         user_id,
     )
 
-    valid = any(
-        str(c["id"]) == str(conversation_id)
-        for c in conversations
-    )
+
+    valid = False
+
+
+    for conversation in conversations:
+
+        if str(
+            conversation["id"]
+        ) == str(
+            conversation_id
+        ):
+
+            valid = True
+
+            break
+
 
     if not valid:
+
         return False
+
+
+    # --------------------------------------------------------
+    # Sohbeti değiştir
+    # --------------------------------------------------------
 
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
 
-    st.session_state.messages = get_messages(
-        supabase,
-        user_id,
+
+    # --------------------------------------------------------
+    # Seçilen sohbetin mesajlarını yükle
+    # --------------------------------------------------------
+
+    st.session_state.messages = (
+        get_messages_by_conversation(
+            supabase,
+            conversation_id,
+            100,
+        )
     )
+
 
     return True
 
@@ -190,11 +250,14 @@ def new_conversation(
         "Yeni sohbet",
     )
 
+
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
 
+
     st.session_state.messages = []
+
 
     return conversation_id
 
@@ -206,14 +269,15 @@ def update_conversation_title(
 ):
 
     if not title:
+
         return
+
 
     (
         supabase
         .table("conversations")
         .update({
             "title": title[:80],
-            "updated_at": "now()",
         })
         .eq(
             "id",
@@ -238,31 +302,53 @@ def save_message(
     provider=None,
 ):
 
-    conversation_id = get_or_create_conversation(
-        supabase,
-        user_id,
+    conversation_id = (
+        get_or_create_conversation(
+            supabase,
+            user_id,
+        )
     )
+
 
     response = (
         supabase
         .table("messages")
         .insert({
-            "conversation_id": conversation_id,
-            "role": role,
-            "content": content or "",
-            "file_url": None,
-            "file_name": file_name,
-            "file_type": file_type,
-            "provider": provider,
+            "conversation_id":
+                conversation_id,
+
+            "role":
+                role,
+
+            "content":
+                content or "",
+
+            "file_url":
+                None,
+
+            "file_name":
+                file_name,
+
+            "file_type":
+                file_type,
+
+            "provider":
+                provider,
         })
         .execute()
     )
+
+
+    # --------------------------------------------------------
+    # Sohbetin son kullanım zamanını güncelle
+    # --------------------------------------------------------
 
     (
         supabase
         .table("conversations")
         .update({
-            "updated_at": "now()",
+            "updated_at":
+                "now()",
         })
         .eq(
             "id",
@@ -271,19 +357,20 @@ def save_message(
         .execute()
     )
 
+
     return response.data
 
 
-def get_messages(
+def get_messages_by_conversation(
     supabase,
-    user_id,
+    conversation_id,
     limit=100,
 ):
 
-    conversation_id = get_or_create_conversation(
-        supabase,
-        user_id,
-    )
+    if not conversation_id:
+
+        return []
+
 
     response = (
         supabase
@@ -297,11 +384,35 @@ def get_messages(
             "created_at",
             desc=False,
         )
-        .limit(limit)
+        .limit(
+            limit
+        )
         .execute()
     )
 
+
     return response.data or []
+
+
+def get_messages(
+    supabase,
+    user_id,
+    limit=100,
+):
+
+    conversation_id = (
+        get_or_create_conversation(
+            supabase,
+            user_id,
+        )
+    )
+
+
+    return get_messages_by_conversation(
+        supabase,
+        conversation_id,
+        limit,
+    )
 
 
 # ============================================================
@@ -328,6 +439,7 @@ def get_memories(
         .execute()
     )
 
+
     return response.data or []
 
 
@@ -338,14 +450,19 @@ def save_memory(
 ):
 
     if not memory:
+
         return
+
 
     (
         supabase
         .table("memories")
         .insert({
-            "user_session_id": user_id,
-            "memory": memory,
+            "user_session_id":
+                user_id,
+
+            "memory":
+                memory,
         })
         .execute()
     )
@@ -397,6 +514,7 @@ def get_wardrobe(
         .execute()
     )
 
+
     return response.data or []
 
 
@@ -407,30 +525,43 @@ def add_wardrobe_item(
 ):
 
     if not item:
+
         return
+
 
     (
         supabase
         .table("wardrobe")
         .insert({
-            "user_session_id": user_id,
-            "name": item.get(
-                "name",
-                "Kıyafet",
-            ),
-            "category": item.get(
-                "category",
-                "diğer",
-            ),
-            "color": item.get(
-                "color",
-                "belirsiz",
-            ),
-            "description": item.get(
-                "description",
-                "",
-            ),
-            "metadata": item,
+            "user_session_id":
+                user_id,
+
+            "name":
+                item.get(
+                    "name",
+                    "Kıyafet",
+                ),
+
+            "category":
+                item.get(
+                    "category",
+                    "diğer",
+                ),
+
+            "color":
+                item.get(
+                    "color",
+                    "belirsiz",
+                ),
+
+            "description":
+                item.get(
+                    "description",
+                    "",
+                ),
+
+            "metadata":
+                item,
         })
         .execute()
     )
