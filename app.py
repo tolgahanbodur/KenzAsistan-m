@@ -79,6 +79,17 @@ div[data-testid="stChatInput"] {
     margin-bottom: 10px;
 }
 
+.file-preview-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 10px 10px 0 0;
+    border: 1px solid rgba(128,128,128,.3);
+    border-bottom: none;
+    background: rgba(128,128,128,.07);
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -96,6 +107,7 @@ defaults = {
     "last_provider": None,
     "show_wardrobe": False,
     "show_settings": False,
+    "user_session_id": str(uuid.uuid4()),
 }
 
 for key, value in defaults.items():
@@ -113,7 +125,8 @@ def start_new_conversation():
     try:
 
         conversation = create_conversation(
-            title="Yeni sohbet"
+            title="Yeni sohbet",
+            user_session_id=st.session_state.user_session_id,
         )
 
         if not conversation:
@@ -179,7 +192,9 @@ if not st.session_state.initialized:
 
     try:
 
-        conversations = get_conversations()
+        conversations = get_conversations(
+            user_session_id=st.session_state.user_session_id
+        )
 
         if conversations:
 
@@ -223,10 +238,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # --------------------------------------------------------
-    # NEW CHAT
-    # --------------------------------------------------------
-
     if st.button(
         "＋ Yeni sohbet",
         use_container_width=True,
@@ -238,15 +249,13 @@ with st.sidebar:
 
     st.divider()
 
-    # --------------------------------------------------------
-    # CONVERSATIONS
-    # --------------------------------------------------------
-
     st.caption("SOHBETLER")
 
     try:
 
-        conversations = get_conversations()
+        conversations = get_conversations(
+            user_session_id=st.session_state.user_session_id
+        )
 
     except Exception:
 
@@ -292,10 +301,6 @@ with st.sidebar:
 
     st.divider()
 
-    # --------------------------------------------------------
-    # WARDROBE
-    # --------------------------------------------------------
-
     if st.button(
         "👕 Gardırop",
         use_container_width=True,
@@ -308,10 +313,6 @@ with st.sidebar:
         st.session_state.show_settings = False
 
         st.rerun()
-
-    # --------------------------------------------------------
-    # SETTINGS
-    # --------------------------------------------------------
 
     if st.button(
         "⚙️ Ayarlar",
@@ -428,51 +429,39 @@ diyebilirsin.
 
                     st.caption(
                         "👕 "
-                        + str(
-                            item["category"]
-                        )
+                        + str(item["category"])
                     )
 
                 if item.get("color"):
 
                     st.caption(
                         "🎨 "
-                        + str(
-                            item["color"]
-                        )
+                        + str(item["color"])
                     )
 
                 if item.get("style"):
 
                     st.caption(
                         "✨ "
-                        + str(
-                            item["style"]
-                        )
+                        + str(item["style"])
                     )
 
                 if item.get("season"):
 
                     st.caption(
                         "🌤️ "
-                        + str(
-                            item["season"]
-                        )
+                        + str(item["season"])
                     )
 
                 if item.get("description"):
 
                     st.caption(
-                        str(
-                            item["description"]
-                        )
+                        str(item["description"])
                     )
 
                 if st.button(
                     "🗑️ Sil",
-                    key=
-                        "delete_clothes_"
-                        + str(item["id"]),
+                    key="delete_clothes_" + str(item["id"]),
                     use_container_width=True,
                 ):
 
@@ -482,17 +471,13 @@ diyebilirsin.
                             item["id"]
                         )
 
-                        st.success(
-                            "Parça silindi."
-                        )
+                        st.success("Parça silindi.")
 
                         st.rerun()
 
                     except Exception as e:
 
-                        st.error(
-                            "Parça silinemedi."
-                        )
+                        st.error("Parça silinemedi.")
 
                         st.exception(e)
 
@@ -527,9 +512,7 @@ if st.session_state.show_settings:
         if preferences:
 
             current_preferences = (
-                preferences.get(
-                    "preferences"
-                )
+                preferences.get("preferences")
                 or ""
             )
 
@@ -556,19 +539,13 @@ if st.session_state.show_settings:
 
         try:
 
-            save_preferences(
-                preference_text
-            )
+            save_preferences(preference_text)
 
-            st.success(
-                "Kenz hafızası kaydedildi."
-            )
+            st.success("Kenz hafızası kaydedildi.")
 
         except Exception as e:
 
-            st.error(
-                "Hafıza kaydedilemedi."
-            )
+            st.error("Hafıza kaydedilemedi.")
 
             st.exception(e)
 
@@ -598,9 +575,7 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="kenz-subtitle">'
-    'Kişisel yapay zeka asistanın'
-    '</div>',
+    '<div class="kenz-subtitle">Kişisel yapay zeka asistanın</div>',
     unsafe_allow_html=True
 )
 
@@ -611,53 +586,23 @@ st.markdown(
 
 for message in st.session_state.messages:
 
-    role = (
-        message.get("role")
-        or "assistant"
-    )
-
-    content = (
-        message.get("content")
-        or ""
-    )
-
-    file_url = (
-        message.get("file_url")
-    )
-
-    file_type = (
-        message.get("file_type")
-        or ""
-    )
+    role = message.get("role") or "assistant"
+    content = message.get("content") or ""
+    file_url = message.get("file_url")
+    file_type = message.get("file_type") or ""
 
     with st.chat_message(role):
 
-        if (
-            file_url
-            and file_type.startswith("image/")
-        ):
+        if file_url and file_type.startswith("image/"):
+            st.image(file_url, use_container_width=True)
 
-            st.image(
-                file_url,
-                use_container_width=True
-            )
-
-        elif (
-            file_url
-            and file_type.startswith("video/")
-        ):
-
+        elif file_url and file_type.startswith("video/"):
             st.video(file_url)
 
-        elif (
-            file_url
-            and file_type.startswith("audio/")
-        ):
-
+        elif file_url and file_type.startswith("audio/"):
             st.audio(file_url)
 
         if content:
-
             st.markdown(content)
 
 
@@ -703,67 +648,51 @@ hazırlayabilirim.
 
 
 # ============================================================
-# FILE UPLOADER
+# DOSYA UPLOADER (chat input üzerinde, önizlemeli)
 # ============================================================
 
 uploaded_file = st.file_uploader(
     "📎 Dosya ekle",
     type=[
-        "jpg",
-        "jpeg",
-        "png",
-        "webp",
-
-        "mp4",
-        "mov",
-        "webm",
-
-        "mp3",
-        "wav",
-        "m4a",
-        "aac",
-        "ogg",
+        "jpg", "jpeg", "png", "webp",
+        "mp4", "mov", "webm",
+        "mp3", "wav", "m4a", "aac", "ogg",
     ],
     accept_multiple_files=False,
     key="chat_file",
+    label_visibility="collapsed",
 )
 
 
 # ============================================================
-# FILE PREVIEW
+# DOSYA ÖNİZLEME
 # ============================================================
 
 if uploaded_file:
 
-    file_type_preview = (
-        uploaded_file.type
-        or ""
-    )
+    file_type_preview = uploaded_file.type or ""
 
-    st.caption(
-        "📎 "
-        + uploaded_file.name
-        + " — Mesajını yazıp Enter'a bas."
+    st.markdown(
+        f"""
+        <div class="file-preview-bar">
+            📎 <strong>{uploaded_file.name}</strong>
+            &nbsp;·&nbsp;
+            <span style="color:#888;font-size:0.85rem;">
+                Mesajını yazıp Enter'a bas
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     if file_type_preview.startswith("image/"):
-
-        st.image(
-            uploaded_file,
-            width=350,
-        )
+        st.image(uploaded_file, width=320)
 
     elif file_type_preview.startswith("video/"):
-
-        st.video(
-            uploaded_file
-        )
+        st.video(uploaded_file)
 
     elif file_type_preview.startswith("audio/"):
-
-        st.audio(
-            uploaded_file
-        )
+        st.audio(uploaded_file)
 
 
 # ============================================================
@@ -784,16 +713,8 @@ if user_message:
     user_message = user_message.strip()
 
     if not user_message:
-
-        st.warning(
-            "Mesaj boş olamaz."
-        )
-
+        st.warning("Mesaj boş olamaz.")
         st.stop()
-
-    # ========================================================
-    # FILE
-    # ========================================================
 
     file_bytes = None
     file_url = None
@@ -805,9 +726,7 @@ if user_message:
         try:
 
             file_bytes = uploaded_file.getvalue()
-
             file_name = uploaded_file.name
-
             file_type = (
                 uploaded_file.type
                 or "application/octet-stream"
@@ -815,47 +734,23 @@ if user_message:
 
         except Exception as e:
 
-            st.error(
-                "Dosya okunamadı."
-            )
-
+            st.error("Dosya okunamadı.")
             st.exception(e)
-
             st.stop()
-
-    # ========================================================
-    # CONVERSATION
-    # ========================================================
 
     if not st.session_state.conversation_id:
 
         if not start_new_conversation():
-
             st.stop()
-
-    # ========================================================
-    # UPLOAD
-    # ========================================================
 
     if file_bytes:
 
         extension = ""
 
-        if (
-            file_name
-            and "." in file_name
-        ):
+        if file_name and "." in file_name:
+            extension = "." + file_name.split(".")[-1].lower()
 
-            extension = (
-                "."
-                + file_name.split(".")[-1].lower()
-            )
-
-        storage_name = (
-            "chat/"
-            + str(uuid.uuid4())
-            + extension
-        )
+        storage_name = "chat/" + str(uuid.uuid4()) + extension
 
         try:
 
@@ -868,74 +763,39 @@ if user_message:
 
         except Exception as e:
 
-            st.warning(
-                "Dosya buluta yüklenemedi."
-            )
-
+            st.warning("Dosya buluta yüklenemedi.")
             st.exception(e)
-
-    # ========================================================
-    # SHOW USER MESSAGE
-    # ========================================================
 
     with st.chat_message("user"):
 
         if file_bytes:
 
             if file_type.startswith("image/"):
-
-                st.image(
-                    file_bytes,
-                    use_container_width=True
-                )
+                st.image(file_bytes, use_container_width=True)
 
             elif file_type.startswith("video/"):
-
                 st.video(file_bytes)
 
             elif file_type.startswith("audio/"):
-
                 st.audio(file_bytes)
 
-        st.markdown(
-            user_message
-        )
-
-    # ========================================================
-    # HISTORY
-    # ========================================================
+        st.markdown(user_message)
 
     history_text = ""
 
     for message in st.session_state.messages:
 
         role = message.get("role")
-
-        content = (
-            message.get("content")
-            or ""
-        )
+        content = message.get("content") or ""
 
         if not content:
             continue
 
         if role == "user":
-
-            history_text += (
-                "\nKullanıcı: "
-                + content
-            )
+            history_text += "\nKullanıcı: " + content
 
         elif role == "assistant":
-
-            history_text += (
-                "\nKenz: "
-                + content
-            )
-
-    # ========================================================
-    # WARDROBE
-    # ========================================================
+            history_text += "\nKenz: " + content
 
     wardrobe_text = ""
 
@@ -948,64 +808,25 @@ if user_message:
             for item in clothes:
 
                 wardrobe_text += "\n- "
-
-                wardrobe_text += str(
-                    item.get("name")
-                    or "Kıyafet"
-                )
+                wardrobe_text += str(item.get("name") or "Kıyafet")
 
                 if item.get("category"):
-
-                    wardrobe_text += (
-                        " | kategori: "
-                        + str(
-                            item["category"]
-                        )
-                    )
+                    wardrobe_text += " | kategori: " + str(item["category"])
 
                 if item.get("color"):
-
-                    wardrobe_text += (
-                        " | renk: "
-                        + str(
-                            item["color"]
-                        )
-                    )
+                    wardrobe_text += " | renk: " + str(item["color"])
 
                 if item.get("style"):
-
-                    wardrobe_text += (
-                        " | stil: "
-                        + str(
-                            item["style"]
-                        )
-                    )
+                    wardrobe_text += " | stil: " + str(item["style"])
 
                 if item.get("season"):
-
-                    wardrobe_text += (
-                        " | sezon: "
-                        + str(
-                            item["season"]
-                        )
-                    )
+                    wardrobe_text += " | sezon: " + str(item["season"])
 
                 if item.get("description"):
-
-                    wardrobe_text += (
-                        " | açıklama: "
-                        + str(
-                            item["description"]
-                        )
-                    )
+                    wardrobe_text += " | açıklama: " + str(item["description"])
 
     except Exception:
-
         wardrobe_text = ""
-
-    # ========================================================
-    # MEMORY
-    # ========================================================
 
     preference_text = ""
 
@@ -1014,21 +835,10 @@ if user_message:
         preferences = get_preferences()
 
         if preferences:
-
-            preference_text = (
-                preferences.get(
-                    "preferences"
-                )
-                or ""
-            )
+            preference_text = preferences.get("preferences") or ""
 
     except Exception:
-
         preference_text = ""
-
-    # ========================================================
-    # SYSTEM PROMPT
-    # ========================================================
 
     system_prompt = """
 Sen Kenz adında kişisel yapay zeka asistanısın.
@@ -1103,10 +913,6 @@ GARDIROP PARÇALARI
 
 """ + history_text
 
-    # ========================================================
-    # CURRENT PROMPT
-    # ========================================================
-
     prompt = (
         system_prompt
         + "\n\n==================================================\n"
@@ -1115,221 +921,120 @@ GARDIROP PARÇALARI
         + user_message
     )
 
-    # ========================================================
-    # SAVE USER MESSAGE
-    # ========================================================
-
     try:
 
         add_message(
-            conversation_id=
-                st.session_state.conversation_id,
-
+            conversation_id=st.session_state.conversation_id,
             role="user",
-
             content=user_message,
-
             file_url=file_url,
-
             file_name=file_name,
-
             file_type=file_type,
-
             provider=None,
         )
 
     except Exception as e:
 
-        st.warning(
-            "Mesaj kaydedilemedi."
-        )
-
+        st.warning("Mesaj kaydedilemedi.")
         st.exception(e)
-
-    # ========================================================
-    # AI
-    # ========================================================
 
     with st.chat_message("assistant"):
 
-        with st.spinner(
-            "Kenz düşünüyor..."
-        ):
+        with st.spinner("Kenz düşünüyor..."):
 
             try:
 
-                if file_bytes:
-
-                    ai_file = {
-                        "bytes":
-                            file_bytes,
-
-                        "name":
-                            file_name,
-
-                        "type":
-                            file_type,
+                ai_file = (
+                    {
+                        "bytes": file_bytes,
+                        "name": file_name,
+                        "type": file_type,
                     }
-
-                else:
-
-                    ai_file = None
+                    if file_bytes
+                    else None
+                )
 
                 answer = ask_ai(
                     prompt=prompt,
                     uploaded_file=ai_file,
                 )
 
-                provider = (
-                    st.session_state.get(
-                        "last_provider"
-                    )
-                )
-
-                # ------------------------------------------------
-                # ANSWER
-                # ------------------------------------------------
+                provider = st.session_state.get("last_provider")
 
                 st.markdown(answer)
-
-                # ------------------------------------------------
-                # SAVE AI MESSAGE
-                # ------------------------------------------------
 
                 try:
 
                     add_message(
-                        conversation_id=
-                            st.session_state.conversation_id,
-
+                        conversation_id=st.session_state.conversation_id,
                         role="assistant",
-
                         content=answer,
-
                         file_url=None,
-
                         file_name=None,
-
                         file_type=None,
-
                         provider=provider,
                     )
 
                 except Exception as e:
 
-                    st.warning(
-                        "AI cevabı kaydedilemedi."
-                    )
-
+                    st.warning("AI cevabı kaydedilemedi.")
                     st.exception(e)
 
-                # ------------------------------------------------
-                # SESSION
-                # ------------------------------------------------
-
                 st.session_state.messages.append(
                     {
-                        "role":
-                            "user",
-
-                        "content":
-                            user_message,
-
-                        "file_url":
-                            file_url,
-
-                        "file_name":
-                            file_name,
-
-                        "file_type":
-                            file_type,
-
-                        "provider":
-                            None,
+                        "role": "user",
+                        "content": user_message,
+                        "file_url": file_url,
+                        "file_name": file_name,
+                        "file_type": file_type,
+                        "provider": None,
                     }
                 )
 
                 st.session_state.messages.append(
                     {
-                        "role":
-                            "assistant",
-
-                        "content":
-                            answer,
-
-                        "file_url":
-                            None,
-
-                        "file_name":
-                            None,
-
-                        "file_type":
-                            None,
-
-                        "provider":
-                            provider,
+                        "role": "assistant",
+                        "content": answer,
+                        "file_url": None,
+                        "file_name": None,
+                        "file_type": None,
+                        "provider": provider,
                     }
                 )
-
-                # ------------------------------------------------
-                # TITLE
-                # ------------------------------------------------
 
                 try:
 
-                    conversations = (
-                        get_conversations()
+                    conversations = get_conversations(
+                        user_session_id=st.session_state.user_session_id
                     )
 
                     current = None
 
                     for conversation in conversations:
 
-                        if (
-                            conversation["id"]
-                            ==
-                            st.session_state.conversation_id
-                        ):
-
+                        if conversation["id"] == st.session_state.conversation_id:
                             current = conversation
                             break
 
-                    if current:
+                    if current and current.get("title") == "Yeni sohbet":
 
-                        if (
-                            current.get("title")
-                            == "Yeni sohbet"
-                        ):
+                        title = (
+                            user_message[:40]
+                            if user_message
+                            else "Medya sohbeti"
+                        )
 
-                            title = (
-                                user_message[:40]
-                                if user_message
-                                else "Medya sohbeti"
-                            )
-
-                            update_conversation_title(
-                                st.session_state.conversation_id,
-                                title,
-                            )
+                        update_conversation_title(
+                            st.session_state.conversation_id,
+                            title,
+                        )
 
                 except Exception:
-
                     pass
-
-                # ------------------------------------------------
-                # AUTO MEMORY KEYWORDS
-                # ------------------------------------------------
-
-                # Şimdilik manuel hafıza sistemi korunuyor.
-                # Bir sonraki adımda gerçek otomatik hafıza
-                # sistemi eklenecek.
 
             except Exception as e:
 
-                st.error(
-                    "Kenz cevap veremedi."
-                )
-
+                st.error("Kenz cevap veremedi.")
                 st.exception(e)
 
 
