@@ -48,10 +48,18 @@ def create_supabase():
 
 
 # ============================================================
-# USER SESSION
+# USER ID
 # ============================================================
 
 def get_session_id():
+
+    """
+    Streamlit session boyunca aynı kullanıcı ID'sini kullanır.
+
+    Not:
+    Bu ID veritabanındaki kişisel verilerin birbirine
+    karışmasını önlemek için kullanılır.
+    """
 
     if "kenz_user_id" not in st.session_state:
 
@@ -61,6 +69,10 @@ def get_session_id():
 
     return st.session_state.kenz_user_id
 
+
+# ============================================================
+# USER CLIENT
+# ============================================================
 
 def get_user_client():
 
@@ -128,33 +140,30 @@ def get_conversations(
     return response.data or []
 
 
+def get_current_conversation_id():
+
+    return st.session_state.get(
+        "kenz_conversation_id"
+    )
+
+
 def get_or_create_conversation(
     supabase,
     user_id,
 ):
 
-    # --------------------------------------------------------
-    # Zaten seçili sohbet varsa
-    # --------------------------------------------------------
-
-    current_id = st.session_state.get(
-        "kenz_conversation_id"
+    current_id = (
+        get_current_conversation_id()
     )
 
     if current_id:
 
         return current_id
 
-
-    # --------------------------------------------------------
-    # Kullanıcının eski sohbetleri
-    # --------------------------------------------------------
-
     conversations = get_conversations(
         supabase,
         user_id,
     )
-
 
     if conversations:
 
@@ -168,11 +177,9 @@ def get_or_create_conversation(
             "Yeni sohbet",
         )
 
-
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
-
 
     return conversation_id
 
@@ -183,18 +190,12 @@ def switch_conversation(
     conversation_id,
 ):
 
-    # --------------------------------------------------------
-    # Bu sohbet gerçekten bu kullanıcıya mı ait?
-    # --------------------------------------------------------
-
     conversations = get_conversations(
         supabase,
         user_id,
     )
 
-
     valid = False
-
 
     for conversation in conversations:
 
@@ -205,27 +206,15 @@ def switch_conversation(
         ):
 
             valid = True
-
             break
-
 
     if not valid:
 
         return False
 
-
-    # --------------------------------------------------------
-    # Sohbeti değiştir
-    # --------------------------------------------------------
-
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
-
-
-    # --------------------------------------------------------
-    # Seçilen sohbetin mesajlarını yükle
-    # --------------------------------------------------------
 
     st.session_state.messages = (
         get_messages_by_conversation(
@@ -234,7 +223,6 @@ def switch_conversation(
             100,
         )
     )
-
 
     return True
 
@@ -250,14 +238,11 @@ def new_conversation(
         "Yeni sohbet",
     )
 
-
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
 
-
     st.session_state.messages = []
-
 
     return conversation_id
 
@@ -269,9 +254,7 @@ def update_conversation_title(
 ):
 
     if not title:
-
         return
-
 
     (
         supabase
@@ -309,7 +292,6 @@ def save_message(
         )
     )
 
-
     response = (
         supabase
         .table("messages")
@@ -338,11 +320,6 @@ def save_message(
         .execute()
     )
 
-
-    # --------------------------------------------------------
-    # Sohbetin son kullanım zamanını güncelle
-    # --------------------------------------------------------
-
     (
         supabase
         .table("conversations")
@@ -357,7 +334,6 @@ def save_message(
         .execute()
     )
 
-
     return response.data
 
 
@@ -370,7 +346,6 @@ def get_messages_by_conversation(
     if not conversation_id:
 
         return []
-
 
     response = (
         supabase
@@ -390,7 +365,6 @@ def get_messages_by_conversation(
         .execute()
     )
 
-
     return response.data or []
 
 
@@ -406,7 +380,6 @@ def get_messages(
             user_id,
         )
     )
-
 
     return get_messages_by_conversation(
         supabase,
@@ -439,7 +412,6 @@ def get_memories(
         .execute()
     )
 
-
     return response.data or []
 
 
@@ -450,9 +422,7 @@ def save_memory(
 ):
 
     if not memory:
-
         return
-
 
     (
         supabase
@@ -514,7 +484,6 @@ def get_wardrobe(
         .execute()
     )
 
-
     return response.data or []
 
 
@@ -525,9 +494,7 @@ def add_wardrobe_item(
 ):
 
     if not item:
-
         return
-
 
     (
         supabase
