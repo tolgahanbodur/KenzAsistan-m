@@ -1,7 +1,9 @@
 import os
 import uuid
 import streamlit as st
+
 from supabase import create_client
+from streamlit_cookies_manager import EncryptedCookieManager
 
 
 # ============================================================
@@ -16,9 +18,9 @@ def get_secret(name):
         return value
 
     try:
-        return st.secrets[name]
+        return st.secrets.get(name, "")
     except Exception:
-        return None
+        return ""
 
 
 # ============================================================
@@ -48,30 +50,80 @@ def create_supabase():
 
 
 # ============================================================
-# USER ID
+# COOKIES
 # ============================================================
+
+@st.cache_resource
+def create_cookie_manager():
+
+    password = get_secret(
+        "KENZ_COOKIE_PASSWORD"
+    )
+
+    if not password:
+
+        raise ValueError(
+            "KENZ_COOKIE_PASSWORD bulunamadı. "
+            "Streamlit Secrets içine eklemelisin."
+        )
+
+    return EncryptedCookieManager(
+        prefix="kenz_",
+        password=password,
+    )
+
 
 def get_session_id():
 
-    """
-    Streamlit session boyunca aynı kullanıcı ID'sini kullanır.
+    cookies = create_cookie_manager()
 
-    Not:
-    Bu ID veritabanındaki kişisel verilerin birbirine
-    karışmasını önlemek için kullanılır.
-    """
+    if not cookies.ready():
 
-    if "kenz_user_id" not in st.session_state:
-
-        st.session_state.kenz_user_id = str(
-            uuid.uuid4()
+        st.warning(
+            "Kenz güvenli kullanıcı oturumunu hazırlıyor..."
         )
 
-    return st.session_state.kenz_user_id
+        st.stop()
+
+
+    # --------------------------------------------------------
+    # Daha önce oluşturulmuş kullanıcı
+    # --------------------------------------------------------
+
+    existing_id = cookies.get(
+        "user_id"
+    )
+
+    if existing_id:
+
+        st.session_state[
+            "kenz_user_id"
+        ] = existing_id
+
+        return existing_id
+
+
+    # --------------------------------------------------------
+    # Yeni kullanıcı
+    # --------------------------------------------------------
+
+    user_id = str(
+        uuid.uuid4()
+    )
+
+    cookies["user_id"] = user_id
+
+    cookies.save()
+
+    st.session_state[
+        "kenz_user_id"
+    ] = user_id
+
+    return user_id
 
 
 # ============================================================
-# USER CLIENT
+# USER
 # ============================================================
 
 def get_user_client():
@@ -140,25 +192,19 @@ def get_conversations(
     return response.data or []
 
 
-def get_current_conversation_id():
-
-    return st.session_state.get(
-        "kenz_conversation_id"
-    )
-
-
 def get_or_create_conversation(
     supabase,
     user_id,
 ):
 
-    current_id = (
-        get_current_conversation_id()
+    current_id = st.session_state.get(
+        "kenz_conversation_id"
     )
 
     if current_id:
 
         return current_id
+
 
     conversations = get_conversations(
         supabase,
@@ -195,26 +241,20 @@ def switch_conversation(
         user_id,
     )
 
-    valid = False
-
-    for conversation in conversations:
-
-        if str(
-            conversation["id"]
-        ) == str(
-            conversation_id
-        ):
-
-            valid = True
-            break
+    valid = any(
+        str(c["id"]) == str(conversation_id)
+        for c in conversations
+    )
 
     if not valid:
 
         return False
 
+
     st.session_state[
         "kenz_conversation_id"
     ] = conversation_id
+
 
     st.session_state.messages = (
         get_messages_by_conversation(
@@ -254,7 +294,9 @@ def update_conversation_title(
 ):
 
     if not title:
+
         return
+
 
     (
         supabase
@@ -292,6 +334,7 @@ def save_message(
         )
     )
 
+
     response = (
         supabase
         .table("messages")
@@ -320,6 +363,7 @@ def save_message(
         .execute()
     )
 
+
     (
         supabase
         .table("conversations")
@@ -334,6 +378,7 @@ def save_message(
         .execute()
     )
 
+
     return response.data
 
 
@@ -346,6 +391,7 @@ def get_messages_by_conversation(
     if not conversation_id:
 
         return []
+
 
     response = (
         supabase
@@ -365,6 +411,7 @@ def get_messages_by_conversation(
         .execute()
     )
 
+
     return response.data or []
 
 
@@ -380,6 +427,7 @@ def get_messages(
             user_id,
         )
     )
+
 
     return get_messages_by_conversation(
         supabase,
@@ -412,6 +460,7 @@ def get_memories(
         .execute()
     )
 
+
     return response.data or []
 
 
@@ -422,7 +471,9 @@ def save_memory(
 ):
 
     if not memory:
+
         return
+
 
     (
         supabase
@@ -484,6 +535,7 @@ def get_wardrobe(
         .execute()
     )
 
+
     return response.data or []
 
 
@@ -494,7 +546,9 @@ def add_wardrobe_item(
 ):
 
     if not item:
+
         return
+
 
     (
         supabase
