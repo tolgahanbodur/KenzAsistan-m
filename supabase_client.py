@@ -1,16 +1,13 @@
 import base64
 import os
-from datetime import datetime
 
 import streamlit as st
-from supabase import (
-    create_client,
-    Client,
-)
+
+from supabase import create_client
 
 
 # ============================================================
-# CONFIG
+# SECRETS
 # ============================================================
 
 def get_secret(
@@ -25,18 +22,20 @@ def get_secret(
         return value
 
     try:
-        return st.secrets[
-            name
-        ]
+
+        return st.secrets[name]
+
     except Exception:
+
         return None
 
 
 # ============================================================
-# CREATE CLIENT
+# SUPABASE
 # ============================================================
 
-def create_supabase() -> Client:
+@st.cache_resource
+def create_supabase():
 
     url = get_secret(
         "SUPABASE_URL"
@@ -47,11 +46,13 @@ def create_supabase() -> Client:
     )
 
     if not url:
+
         raise ValueError(
             "SUPABASE_URL bulunamadı."
         )
 
     if not key:
+
         raise ValueError(
             "SUPABASE_KEY bulunamadı."
         )
@@ -63,7 +64,7 @@ def create_supabase() -> Client:
 
 
 # ============================================================
-# USER / ANONYMOUS SESSION
+# USER
 # ============================================================
 
 def get_user_client():
@@ -75,6 +76,7 @@ def get_user_client():
 
         st.session_state.supabase_access_token = None
 
+
     if (
         "supabase_refresh_token"
         not in st.session_state
@@ -82,11 +84,12 @@ def get_user_client():
 
         st.session_state.supabase_refresh_token = None
 
+
     supabase = create_supabase()
 
 
     # --------------------------------------------------------
-    # RESTORE SESSION
+    # RESTORE
     # --------------------------------------------------------
 
     access_token = (
@@ -97,10 +100,8 @@ def get_user_client():
         st.session_state.supabase_refresh_token
     )
 
-    if (
-        access_token
-        and refresh_token
-    ):
+
+    if access_token and refresh_token:
 
         try:
 
@@ -124,38 +125,25 @@ def get_user_client():
 
         except Exception:
 
-            st.session_state.supabase_access_token = None
-            st.session_state.supabase_refresh_token = None
+            pass
 
 
     # --------------------------------------------------------
     # NEW ANONYMOUS USER
     # --------------------------------------------------------
 
-    try:
-
-        response = (
-            supabase.auth.sign_in_anonymously()
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            "Supabase anonymous sign-in "
-            "başarısız. Supabase Dashboard → "
-            "Authentication → Sign In / Providers "
-            "bölümünden Anonymous Sign-Ins'i aç.\n\n"
-            + str(e)
-        )
-
+    response = (
+        supabase.auth.sign_in_anonymously()
+    )
 
     session = response.session
     user = response.user
 
+
     if not session or not user:
 
         raise RuntimeError(
-            "Supabase anonymous kullanıcı "
+            "Anonymous Supabase kullanıcısı "
             "oluşturulamadı."
         )
 
@@ -167,6 +155,7 @@ def get_user_client():
     st.session_state.supabase_refresh_token = (
         session.refresh_token
     )
+
 
     user_id = str(
         user.id
@@ -190,6 +179,7 @@ def get_user_client():
         ).execute()
 
     except Exception:
+
         pass
 
 
@@ -212,33 +202,27 @@ def save_message(
     file_bytes=None,
 ):
 
-    encoded_file = None
+    encoded = None
 
     if file_bytes:
 
-        encoded_file = base64.b64encode(
+        encoded = base64.b64encode(
             file_bytes
-        ).decode("utf-8")
+        ).decode(
+            "utf-8"
+        )
 
-
-    data = {
-
-        "user_id": user_id,
-
-        "role": role,
-
-        "content": content or "",
-
-        "file_name": file_name,
-
-        "file_data": encoded_file,
-
-    }
 
     supabase.table(
         "messages"
     ).insert(
-        data
+        {
+            "user_id": user_id,
+            "role": role,
+            "content": content or "",
+            "file_name": file_name,
+            "file_data": encoded,
+        }
     ).execute()
 
 
@@ -252,9 +236,7 @@ def get_messages(
         supabase.table(
             "messages"
         )
-        .select(
-            "*"
-        )
+        .select("*")
         .eq(
             "user_id",
             user_id,
@@ -285,9 +267,7 @@ def get_memories(
         supabase.table(
             "memories"
         )
-        .select(
-            "*"
-        )
+        .select("*")
         .eq(
             "user_id",
             user_id,
@@ -311,6 +291,7 @@ def save_memory(
     if not memory:
         return
 
+
     supabase.table(
         "memories"
     ).insert(
@@ -327,15 +308,21 @@ def delete_memory(
     memory_id,
 ):
 
-    supabase.table(
-        "memories"
-    ).delete().eq(
-        "id",
-        memory_id,
-    ).eq(
-        "user_id",
-        user_id,
-    ).execute()
+    (
+        supabase.table(
+            "memories"
+        )
+        .delete()
+        .eq(
+            "id",
+            memory_id,
+        )
+        .eq(
+            "user_id",
+            user_id,
+        )
+        .execute()
+    )
 
 
 # ============================================================
@@ -351,9 +338,7 @@ def get_wardrobe(
         supabase.table(
             "wardrobe"
         )
-        .select(
-            "*"
-        )
+        .select("*")
         .eq(
             "user_id",
             user_id,
@@ -376,6 +361,7 @@ def add_wardrobe_item(
 
     if not item:
         return
+
 
     supabase.table(
         "wardrobe"
