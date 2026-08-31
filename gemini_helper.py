@@ -1,4 +1,3 @@
-import io
 import json
 import mimetypes
 import os
@@ -10,91 +9,114 @@ from pathlib import Path
 
 import imageio_ffmpeg
 import streamlit as st
-from PIL import Image
+
 from google import genai
 from google.genai import types
+
+from openai import OpenAI
+
 from pydantic import BaseModel
 
 
 # ============================================================
-# CONFIG
+# MODELS
 # ============================================================
 
-MODEL = "gemini-3.7-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
+
+OPENAI_MODEL = "gpt-5-mini"
 
 
 # ============================================================
-# API KEY
+# SECRETS
 # ============================================================
 
-def get_api_key():
+def secret(
+    name,
+):
 
-    key = os.environ.get(
-        "GEMINI_API_KEY"
+    value = os.environ.get(
+        name
     )
 
-    if key:
-        return key
+    if value:
+        return value
 
     try:
-        return st.secrets[
-            "GEMINI_API_KEY"
-        ]
+
+        return st.secrets[name]
+
     except Exception:
+
         return None
 
 
 # ============================================================
-# CLIENT
+# CLIENTS
 # ============================================================
 
 @st.cache_resource
-def get_client():
+def gemini_client():
 
-    api_key = get_api_key()
+    key = secret(
+        "GEMINI_API_KEY"
+    )
 
-    if not api_key:
+    if not key:
+
         raise ValueError(
             "GEMINI_API_KEY bulunamadı."
         )
 
     return genai.Client(
-        api_key=api_key
+        api_key=key
+    )
+
+
+@st.cache_resource
+def openai_client():
+
+    key = secret(
+        "OPENAI_API_KEY"
+    )
+
+    if not key:
+
+        return None
+
+    return OpenAI(
+        api_key=key
     )
 
 
 # ============================================================
-# SYSTEM PROMPT
+# SYSTEM
 # ============================================================
 
 SYSTEM_PROMPT = """
-Sen Kenz adında kişisel bir yapay zekâ asistanısın.
+Sen Kenz adında kişisel yapay zekâ asistanısın.
 
 Kullanıcıyla Türkçe konuş.
 
-Görevin:
-- normal sohbet etmek
-- soruları cevaplamak
-- görselleri analiz etmek
-- fotoğrafları yorumlamak
-- kıyafet ve kombin analiz etmek
-- gardırop konusunda yardımcı olmak
-- PDF, belge, ses, video ve diğer dosyaları analiz etmek
-- kullanıcının kişisel hafızasını kullanmak
+Yeteneklerin:
+- normal sohbet
+- kişisel hafıza
+- görsel analiz
+- dosya analizi
+- ses analizi
+- video analizi
+- gardırop
+- kombin önerileri
+- web araştırması
+- medya linklerini dönüştürme
 
-Kullanıcıya ait hafıza aşağıda verilen bilgilerle sınırlıdır.
+Kullanıcıya verilen hafıza ve gardırop bilgilerini gerektiğinde kullan.
 
-Önemli kurallar:
+Kullanıcıya ait bilgileri başka kullanıcılarla paylaşma.
 
-1. Görmediğin bir dosyayı görmüş gibi davranma.
-2. Kullanıcının verdiği dosya ve mesajı birlikte değerlendir.
-3. Kullanıcı açıkça istemedikçe gereksiz uzun cevap verme.
-4. Türkçe cevap ver.
-5. Samimi ama doğal konuş.
-6. Hafızadaki bilgileri cevap verirken uygun olduğunda kullan.
-7. Kullanıcının gardırobunu biliyorsan kombin önerilerini buna göre yap.
-8. Kullanıcı "bunu hatırla" dediğinde uygulama bunu ayrıca hafızaya kaydeder.
-9. Kullanıcıya ait bilgileri başka kullanıcılarla paylaşma.
+Bir sorudan emin değilsen kesinmiş gibi konuşma.
+
+Gerekli olduğunda ikinci bir AI görüşü alınabilir.
 """
 
 
@@ -102,7 +124,7 @@ Kullanıcıya ait hafıza aşağıda verilen bilgilerle sınırlıdır.
 # MIME
 # ============================================================
 
-def safe_mime(
+def get_mime(
     file_name,
     mime_type=None,
 ):
@@ -119,92 +141,462 @@ def safe_mime(
 
 
 # ============================================================
-# FILE PART
+# GEMINI FILE
 # ============================================================
 
-def make_file_part(
-    file_bytes,
-    mime_type,
-):
-
-    return types.Part.from_bytes(
-        data=file_bytes,
-        mime_type=mime_type,
-    )
-
-
-# ============================================================
-# FILE CONTENT
-# ============================================================
-
-def build_file_content(
+def prepare_gemini_file(
     file_bytes,
     file_name,
     mime_type,
 ):
 
     if not file_bytes:
-        return []
 
-    mime_type = safe_mime(
+        return None
+
+    mime_type = get_mime(
         file_name,
         mime_type,
     )
 
-    # Images can be passed directly.
+
+    # Images
     if mime_type.startswith(
         "image/"
     ):
 
-        return [
-            make_file_part(
-                file_bytes,
-                mime_type,
-            )
-        ]
+        return types.Part.from_bytes(
+            data=file_bytes,
+            mime_type=mime_type,
+        )
 
-    # For audio/video/documents use Gemini Files API.
-    temp_path = None
+
+    # Other files
+    suffix = Path(
+        file_name or ""
+    ).suffix
+
+    temp = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=suffix,
+    )
 
     try:
 
-        suffix = Path(
-            file_name or ""
-        ).suffix
-
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-        ) as temp:
-
-            temp.write(
-                file_bytes
-            )
-
-            temp_path = temp.name
-
-        uploaded = get_client().files.upload(
-            file=temp_path
+        temp.write(
+            file_bytes
         )
 
-        return [
-            uploaded
-        ]
+        temp.close()
+
+        uploaded = (
+            gemini_client()
+            .files
+            .upload(
+                file=temp.name
+            )
+        )
+
+        return uploaded
 
     finally:
 
-        if temp_path:
+        try:
 
-            try:
-                os.remove(
-                    temp_path
-                )
-            except Exception:
-                pass
+            os.remove(
+                temp.name
+            )
+
+        except Exception:
+            pass
 
 
 # ============================================================
-# CHAT
+# BUILD CONTEXT
+# ============================================================
+
+def build_context(
+    history,
+    memories,
+    wardrobe,
+):
+
+    parts = [
+        SYSTEM_PROMPT
+    ]
+
+
+    if memories:
+
+        parts.append(
+            "\nKULLANICI HAFIZASI:"
+        )
+
+        for item in memories[:50]:
+
+            parts.append(
+                "- "
+                + item.get(
+                    "memory",
+                    "",
+                )
+            )
+
+
+    if wardrobe:
+
+        parts.append(
+            "\nKULLANICI GARDIROBU:"
+        )
+
+        for item in wardrobe[:100]:
+
+            parts.append(
+                "- "
+                + item.get(
+                    "name",
+                    "Kıyafet",
+                )
+                + " | "
+                + item.get(
+                    "category",
+                    "",
+                )
+                + " | "
+                + item.get(
+                    "color",
+                    "",
+                )
+                + " | "
+                + item.get(
+                    "description",
+                    "",
+                )
+            )
+
+
+    if history:
+
+        parts.append(
+            "\nSON KONUŞMALAR:"
+        )
+
+        for message in history[-20:]:
+
+            role = message.get(
+                "role",
+                "",
+            )
+
+            content = message.get(
+                "content",
+                "",
+            )
+
+            if not content:
+                continue
+
+            parts.append(
+                f"{role}: {content}"
+            )
+
+
+    return "\n".join(
+        parts
+    )
+
+
+# ============================================================
+# GEMINI FIRST OPINION
+# ============================================================
+
+def ask_gemini(
+    user_text,
+    file_bytes,
+    file_name,
+    mime_type,
+    context,
+):
+
+    client = gemini_client()
+
+    contents = [
+        context,
+        "\nYENİ MESAJ:\n"
+        + (
+            user_text
+            or "Kullanıcı bir dosya gönderdi."
+        ),
+    ]
+
+    if file_bytes:
+
+        file = prepare_gemini_file(
+            file_bytes,
+            file_name,
+            mime_type,
+        )
+
+        if file:
+
+            contents.append(
+                file
+            )
+
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            tools=[
+                types.Tool(
+                    google_search=types.GoogleSearch()
+                )
+            ]
+        ),
+    )
+
+    return (
+        response.text
+        if response.text
+        else ""
+    )
+
+
+# ============================================================
+# SHOULD ASK OPENAI?
+# ============================================================
+
+def needs_second_opinion(
+    user_text,
+    gemini_answer,
+):
+
+    text = (
+        (user_text or "")
+        + " "
+        + (gemini_answer or "")
+    ).lower()
+
+
+    manual = [
+        "ikinci görüş",
+        "chatgpt'ye sor",
+        "openai'ye sor",
+        "diğer ai'a sor",
+        "başka ai'a sor",
+        "emin misin",
+    ]
+
+    if any(
+        phrase in text
+        for phrase in manual
+    ):
+
+        return True
+
+
+    uncertainty = [
+        "emin değilim",
+        "emin değilim.",
+        "bunu doğrulayamıyorum",
+        "yeterli bilgi yok",
+        "kesin olarak söyleyemem",
+        "bilmiyorum",
+        "doğrulayamıyorum",
+    ]
+
+    if any(
+        phrase in gemini_answer.lower()
+        for phrase in uncertainty
+    ):
+
+        return True
+
+
+    # Explicitly difficult technical/reasoning requests
+    difficult = [
+        "çok karmaşık",
+        "derin analiz",
+        "detaylı teknik analiz",
+        "bu kodu düzelt",
+        "kodu baştan incele",
+        "bug bul",
+        "hata neden",
+    ]
+
+    if any(
+        phrase in text
+        for phrase in difficult
+    ):
+
+        return True
+
+
+    return False
+
+
+# ============================================================
+# OPENAI SECOND OPINION
+# ============================================================
+
+def ask_openai_second_opinion(
+    user_text,
+    gemini_answer,
+    context,
+    file_bytes=None,
+    file_name=None,
+    mime_type=None,
+):
+
+    client = openai_client()
+
+    if client is None:
+
+        return None
+
+
+    prompt = f"""
+Sen Kenz'in ikinci uzman AI danışmanısın.
+
+Kullanıcı sorusu:
+
+{user_text}
+
+Kenz/Gemini'nin ilk cevabı:
+
+{gemini_answer}
+
+Bağlam:
+
+{context}
+
+Görevin:
+1. Gemini cevabını kontrol et.
+2. Hataları veya eksikleri bul.
+3. Gerekirse daha doğru bir çözüm öner.
+4. Gereksiz yere Gemini'ye katılma.
+5. Türkçe cevap ver.
+
+Kullanıcıya doğrudan cevap vermek zorunda değilsin.
+Kenz bu sonucu kullanarak son cevabı oluşturacak.
+"""
+
+
+    content = [
+        {
+            "type": "input_text",
+            "text": prompt,
+        }
+    ]
+
+
+    # Image support
+    if (
+        file_bytes
+        and mime_type
+        and mime_type.startswith(
+            "image/"
+        )
+    ):
+
+        import base64
+
+        encoded = base64.b64encode(
+            file_bytes
+        ).decode(
+            "utf-8"
+        )
+
+        content.append(
+            {
+                "type": "input_image",
+                "image_url":
+                    f"data:{mime_type};base64,{encoded}",
+            }
+        )
+
+
+    response = client.responses.create(
+        model=OPENAI_MODEL,
+        input=[
+            {
+                "role": "user",
+                "content": content,
+            }
+        ],
+    )
+
+    return response.output_text
+
+
+# ============================================================
+# FINAL SYNTHESIS
+# ============================================================
+
+def synthesize(
+    user_text,
+    gemini_answer,
+    openai_answer,
+    context,
+):
+
+    if not openai_answer:
+
+        return gemini_answer
+
+
+    client = gemini_client()
+
+
+    prompt = f"""
+Sen Kenz'sin.
+
+Kullanıcının sorusu:
+
+{user_text}
+
+Senin ilk cevabın:
+
+{gemini_answer}
+
+İkinci AI'ın görüşü:
+
+{openai_answer}
+
+Bağlam:
+
+{context}
+
+Şimdi son cevabı oluştur.
+
+Kurallar:
+- İki görüşü karşılaştır.
+- Yanlış bilgiyi ayıkla.
+- Çelişki varsa en mantıklı olanı seç.
+- Kullanıcıya ikinci AI'ın iç yazışmasını gösterme.
+- "Gemini şöyle dedi, ChatGPT böyle dedi" şeklinde konuşma.
+- Tek ve doğal bir Kenz cevabı ver.
+- Türkçe konuş.
+"""
+
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=[
+            prompt
+        ],
+    )
+
+    return (
+        response.text
+        if response.text
+        else gemini_answer
+    )
+
+
+# ============================================================
+# MAIN CHAT
 # ============================================================
 
 def chat_with_kenz(
@@ -217,200 +609,61 @@ def chat_with_kenz(
     wardrobe=None,
 ):
 
-    client = get_client()
-
-    contents = [
-        SYSTEM_PROMPT
-    ]
-
-
-    # --------------------------------------------------------
-    # MEMORY
-    # --------------------------------------------------------
-
-    if memories:
-
-        memory_lines = []
-
-        for item in memories[:50]:
-
-            memory = item.get(
-                "memory",
-                "",
-            )
-
-            if memory:
-                memory_lines.append(
-                    f"- {memory}"
-                )
-
-        if memory_lines:
-
-            contents.append(
-                "\nKULLANICI HAFIZASI:\n"
-                + "\n".join(
-                    memory_lines
-                )
-            )
-
-
-    # --------------------------------------------------------
-    # WARDROBE
-    # --------------------------------------------------------
-
-    if wardrobe:
-
-        wardrobe_lines = []
-
-        for item in wardrobe[:100]:
-
-            name = item.get(
-                "name",
-                "",
-            )
-
-            category = item.get(
-                "category",
-                "",
-            )
-
-            color = item.get(
-                "color",
-                "",
-            )
-
-            description = item.get(
-                "description",
-                "",
-            )
-
-            wardrobe_lines.append(
-                f"- {name} | "
-                f"{category} | "
-                f"{color} | "
-                f"{description}"
-            )
-
-        if wardrobe_lines:
-
-            contents.append(
-                "\nKULLANICI GARDIROBU:\n"
-                + "\n".join(
-                    wardrobe_lines
-                )
-            )
-
-
-    # --------------------------------------------------------
-    # HISTORY
-    # --------------------------------------------------------
-
-    if history:
-
-        history_lines = []
-
-        for message in history[-30:]:
-
-            role = message.get(
-                "role",
-                "",
-            )
-
-            text = message.get(
-                "content",
-                "",
-            )
-
-            if not text:
-                continue
-
-            if role == "user":
-                prefix = "Kullanıcı"
-            else:
-                prefix = "Kenz"
-
-            history_lines.append(
-                f"{prefix}: {text}"
-            )
-
-        if history_lines:
-
-            contents.append(
-                "\nÖNCEKİ KONUŞMA:\n"
-                + "\n".join(
-                    history_lines
-                )
-            )
-
-
-    # --------------------------------------------------------
-    # CURRENT MESSAGE
-    # --------------------------------------------------------
-
-    current_text = (
-        user_text
-        if user_text
-        else
-        "Kullanıcı bir dosya gönderdi."
-    )
-
-    contents.append(
-        "\nYENİ KULLANICI MESAJI:\n"
-        + current_text
+    context = build_context(
+        history or [],
+        memories or [],
+        wardrobe or [],
     )
 
 
     # --------------------------------------------------------
-    # FILE
+    # GEMINI
     # --------------------------------------------------------
 
-    if file_bytes:
+    gemini_answer = ask_gemini(
+        user_text,
+        file_bytes,
+        file_name,
+        mime_type,
+        context,
+    )
 
-        contents.extend(
-            build_file_content(
+
+    # --------------------------------------------------------
+    # SECOND OPINION
+    # --------------------------------------------------------
+
+    if needs_second_opinion(
+        user_text,
+        gemini_answer,
+    ):
+
+        openai_answer = (
+            ask_openai_second_opinion(
+                user_text,
+                gemini_answer,
+                context,
                 file_bytes,
                 file_name,
                 mime_type,
             )
         )
 
+        if openai_answer:
 
-    # --------------------------------------------------------
-    # WEB SEARCH
-    # --------------------------------------------------------
-
-    config = types.GenerateContentConfig(
-        tools=[
-            types.Tool(
-                google_search=types.GoogleSearch()
+            return synthesize(
+                user_text,
+                gemini_answer,
+                openai_answer,
+                context,
             )
-        ]
-    )
 
 
-    # --------------------------------------------------------
-    # GENERATE
-    # --------------------------------------------------------
-
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=contents,
-        config=config,
-    )
-
-
-    if not response.text:
-
-        return (
-            "Üzgünüm, bu isteğe cevap "
-            "oluşturamadım."
-        )
-
-    return response.text
+    return gemini_answer
 
 
 # ============================================================
-# WARDROBE MODEL
+# WARDROBE
 # ============================================================
 
 class WardrobeItem(BaseModel):
@@ -421,81 +674,53 @@ class WardrobeItem(BaseModel):
     description: str
 
 
-# ============================================================
-# WARDROBE EXTRACTION
-# ============================================================
-
 def extract_wardrobe_item(
     file_bytes,
     mime_type,
-    user_text="",
 ):
 
-    client = get_client()
+    client = gemini_client()
+
+    image = types.Part.from_bytes(
+        data=file_bytes,
+        mime_type=mime_type or "image/jpeg",
+    )
+
 
     prompt = """
-Bu görseldeki kıyafeti gardırop veritabanına
-kaydetmek için analiz et.
+Görseldeki kıyafeti analiz et.
 
-Yalnızca JSON döndür:
+JSON olarak cevap ver:
 
 {
-  "name": "...",
-  "category": "...",
-  "color": "...",
-  "description": "..."
+    "name": "kıyafet adı",
+    "category": "kategori",
+    "color": "ana renk",
+    "description": "kısa açıklama"
 }
-
-category örnekleri:
-gömlek, tişört, polo, pantolon, jean,
-ceket, mont, hırka, ayakkabı, aksesuar,
-şort, takım elbise, diğer
-
-description kısa ama faydalı olsun.
 """
 
-    contents = [
-        make_file_part(
-            file_bytes,
-            mime_type or "image/jpeg",
-        ),
-        prompt,
-    ]
 
     response = client.models.generate_content(
-        model=MODEL,
-        contents=contents,
+        model=GEMINI_MODEL,
+        contents=[
+            image,
+            prompt,
+        ],
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=WardrobeItem,
         ),
     )
 
-    try:
 
-        data = json.loads(
-            response.text
-        )
-
-        return data
-
-    except Exception:
-
-        return None
+    return json.loads(
+        response.text
+    )
 
 
 # ============================================================
-# URL
-# ============================================================
-
-URL_RE = re.compile(
-    r"https?://[^\s]+",
-    re.IGNORECASE,
-)
-
-
-# ============================================================
-# FORMAT MIME
+# MEDIA CONVERSION
 # ============================================================
 
 FORMAT_MIME = {
@@ -513,60 +738,21 @@ FORMAT_MIME = {
     "webm": "video/webm",
     "mov": "video/quicktime",
     "avi": "video/x-msvideo",
+
     "gif": "image/gif",
 }
 
 
-# ============================================================
-# FORMAT PARSER
-# ============================================================
-
-def normalize_format(
-    requested_format,
-):
-
-    if not requested_format:
-        return None
-
-    fmt = (
-        requested_format
-        .lower()
-        .strip()
-        .replace(".", "")
-    )
-
-    allowed = set(
-        FORMAT_MIME.keys()
-    )
-
-    return (
-        fmt
-        if fmt in allowed
-        else None
-    )
-
-
-# ============================================================
-# FFMPEG
-# ============================================================
-
 def get_ffmpeg():
 
-    path = imageio_ffmpeg.get_ffmpeg_exe()
-
-    if not path:
-        raise RuntimeError(
-            "FFmpeg bulunamadı."
-        )
-
-    return path
+    return imageio_ffmpeg.get_ffmpeg_exe()
 
 
 # ============================================================
-# DOWNLOAD SOURCE
+# DOWNLOAD
 # ============================================================
 
-def download_source(
+def download_media(
     url,
     directory,
 ):
@@ -575,19 +761,18 @@ def download_source(
 
     ffmpeg = get_ffmpeg()
 
-    output_template = os.path.join(
+    template = os.path.join(
         directory,
         "source.%(ext)s",
     )
 
+
     options = {
 
-        "outtmpl": output_template,
+        "outtmpl": template,
 
-        "format": (
-            "bestvideo+bestaudio/"
-            "best"
-        ),
+        "format":
+            "bestvideo+bestaudio/best",
 
         "merge_output_format": "mp4",
 
@@ -599,8 +784,8 @@ def download_source(
 
         "ffmpeg_location": ffmpeg,
 
-        "restrictfilenames": True,
     }
+
 
     with YoutubeDL(
         options
@@ -611,26 +796,29 @@ def download_source(
             download=True,
         )
 
-        prepared = (
-            ydl.prepare_filename(
-                info
-            )
+        filename = ydl.prepare_filename(
+            info
         )
 
-    # yt-dlp can merge to mp4.
-    possible = [
-        prepared,
-        os.path.join(
-            directory,
-            "source.mp4",
-        ),
-    ]
 
-    for path in possible:
+    if os.path.exists(
+        filename
+    ):
 
-        if os.path.exists(path):
+        return filename
 
-            return path
+
+    mp4 = os.path.join(
+        directory,
+        "source.mp4",
+    )
+
+    if os.path.exists(
+        mp4
+    ):
+
+        return mp4
+
 
     files = list(
         Path(directory).glob(
@@ -644,203 +832,177 @@ def download_source(
             files[0]
         )
 
+
     raise RuntimeError(
-        "Kaynak medya dosyası bulunamadı."
+        "Medya indirilemedi."
     )
 
 
 # ============================================================
-# FFMPEG CONVERSION
+# FFMPEG
 # ============================================================
 
-def ffmpeg_convert(
-    input_path,
-    output_path,
-    requested_format,
+def convert_with_ffmpeg(
+    source,
+    destination,
+    fmt,
 ):
 
     ffmpeg = get_ffmpeg()
 
-    fmt = requested_format
-
-
-    # --------------------------------------------------------
-    # AUDIO
-    # --------------------------------------------------------
 
     if fmt == "mp3":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "libmp3lame",
             "-q:a",
             "2",
-            output_path,
+            destination,
         ]
+
 
     elif fmt == "wav":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "pcm_s16le",
-            output_path,
+            destination,
         ]
+
 
     elif fmt == "flac":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "flac",
-            output_path,
+            destination,
         ]
+
 
     elif fmt == "m4a":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "aac",
             "-b:a",
             "256k",
-            output_path,
+            destination,
         ]
+
 
     elif fmt == "aac":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "aac",
             "-b:a",
             "256k",
-            output_path,
+            destination,
         ]
+
 
     elif fmt == "opus":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "libopus",
             "-b:a",
             "160k",
-            output_path,
+            destination,
         ]
+
 
     elif fmt == "ogg":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vn",
             "-codec:a",
             "libvorbis",
             "-q:a",
             "5",
-            output_path,
+            destination,
         ]
 
-
-    # --------------------------------------------------------
-    # GIF
-    # --------------------------------------------------------
 
     elif fmt == "gif":
 
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-vf",
-            "fps=12,scale=720:-1:flags=lanczos",
-            output_path,
+            "fps=12,scale=720:-1",
+            destination,
         ]
 
 
-    # --------------------------------------------------------
-    # VIDEO
-    # --------------------------------------------------------
-
     else:
 
-        video_codec = (
-            "libvpx-vp9"
-            if fmt == "webm"
-            else "libx264"
-        )
-
-        audio_codec = (
-            "libopus"
-            if fmt == "webm"
-            else "aac"
-        )
-
-        cmd = [
+        command = [
             ffmpeg,
             "-y",
             "-i",
-            input_path,
+            source,
             "-c:v",
-            video_codec,
+            "libx264",
             "-c:a",
-            audio_codec,
+            "aac",
             "-crf",
             "23",
             "-preset",
             "medium",
-            output_path,
+            destination,
         ]
 
 
     result = subprocess.run(
-        cmd,
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
 
+
     if result.returncode != 0:
 
         raise RuntimeError(
             result.stderr[-4000:]
-        )
-
-    if not os.path.exists(
-        output_path
-    ):
-
-        raise RuntimeError(
-            "FFmpeg çıktı dosyası oluşturmadı."
         )
 
 
@@ -853,54 +1015,36 @@ def convert_media_url(
     requested_format,
 ):
 
-    requested_format = normalize_format(
-        requested_format
-    )
+    fmt = requested_format.lower().strip()
 
-    if not requested_format:
+    if fmt not in FORMAT_MIME:
 
         raise ValueError(
             "Desteklenmeyen format."
         )
 
 
-    # --------------------------------------------------------
-    # CLEAN URL
-    # --------------------------------------------------------
-
-    url = url.strip()
-
-    if not URL_RE.match(url):
-
-        raise ValueError(
-            "Geçerli bir URL değil."
-        )
-
-
-    # --------------------------------------------------------
-    # TEMP DIRECTORY
-    # --------------------------------------------------------
-
     workdir = tempfile.mkdtemp(
-        prefix="kenz_media_"
+        prefix="kenz_"
     )
+
 
     try:
 
-        source = download_source(
+        source = download_media(
             url,
             workdir,
         )
 
         output = os.path.join(
             workdir,
-            f"kenz_output.{requested_format}",
+            f"kenz.{fmt}",
         )
 
-        ffmpeg_convert(
+        convert_with_ffmpeg(
             source,
             output,
-            requested_format,
+            fmt,
         )
 
         with open(
@@ -910,16 +1054,18 @@ def convert_media_url(
 
             data = f.read()
 
+
         return {
+
             "bytes": data,
-            "file_name": (
-                f"kenz_output."
-                f"{requested_format}"
-            ),
-            "mime_type": FORMAT_MIME[
-                requested_format
-            ],
+
+            "file_name":
+                f"kenz.{fmt}",
+
+            "mime_type":
+                FORMAT_MIME[fmt],
         }
+
 
     finally:
 
